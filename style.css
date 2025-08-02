@@ -1,0 +1,137 @@
+body {
+margin: 0; font-family: "微软雅黑", sans-serif;
+background: #fff; color: #000;
+display: flex; height: 100vh; overflow: hidden;
+}
+body.night {
+background: #121212; color: #e0e0e0;
+}
+#toc {
+width: 220px;
+border-right: 1px solid #ccc;
+overflow-y: auto;
+padding: 0.5em;
+background: #f9f9f9;
+}
+body.night #toc {
+background: #1f1f1f;
+border-color: #444;
+color: #e0e0e0;
+}
+/* 确保夜间模式下目录内容颜色正确 */
+body.night #toc h2,
+body.night #toc li {
+color: #e0e0e0 !important;
+}
+body.night #toc li:hover, 
+body.night #toc li.active {
+background: #0078d7;
+color: white !important;
+}
+#toc h2 {
+font-size: 1.2em;
+margin-top: 0;
+}
+#toc ul {
+list-style: none;
+padding-left: 0;
+}
+#toc li {
+cursor: pointer;
+padding: 4px 6px;
+border-radius: 3px;
+}
+#toc li:hover, #toc li.active {
+background: #0078d7;
+color: white;
+}
+#main {
+flex: 1;
+display: flex;
+flex-direction: column;
+height: 100vh;
+}
+#toolbar {
+background: #eee;
+padding: 0.3em 0.5em;
+display: flex;
+align-items: center;
+gap: 10px;
+user-select: none;
+}
+body.night #toolbar {
+background: #222;
+color: #e0e0e0;
+}
+#title {
+flex: 1;
+font-weight: bold;
+font-size: 1.1em;
+overflow: hidden;
+white-space: nowrap;
+text-overflow: ellipsis;
+}
+button {
+padding: 0.2em 0.6em;
+cursor: pointer;
+background: #0078d7;
+border: none;
+color: white;
+border-radius: 3px;
+font-size: 1em;
+}
+button:disabled {
+background: #aaa;
+cursor: default;
+}
+#viewer {
+flex: 1;
+overflow: hidden;
+}
+#viewport {
+width: 100%; height: 100%;
+margin: 0 auto !important;
+}
+
+/* 图片自适应样式 - 温和设置，不破坏原始格式 */
+#viewport iframe {
+width: 100%;
+height: 100%;
+}
+
+/* 针对EPUB内容中的图片进行温和的样式调整 */
+#viewport img {
+max-width: 100%;
+height: auto;
+}
+/* 双页模式时，viewport宽度减半并居中 */
+body.double-page #viewport {
+width: 50%;
+margin: 0 auto;
+}
+/* 手机端强制单页铺满 */
+@media(max-width:768px) {
+#toc { display: none; }
+body.double-page #viewport {
+    width: 100%;
+}
+}
+/* 所有按钮在所有设备上都显示 */
+#pageToggleBtn, #tocToggleBtn {
+display: inline-block;
+}
+
+/* 目录切换按钮样式 */
+#tocToggleBtn {
+background: #28a745;
+}
+
+/* 页面模式按钮样式 */
+#pageToggleBtn {
+background: #6f42c1;
+}
+
+/* 文字颜色按钮样式 */
+#textColorBtn {
+background: #fd7e14;
+}

@@ -1,0 +1,42 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<meta name="mobile-web-app-capable" content="yes">
+<title>EPUB.js 阅读器示例</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<div id="toc">
+  <h2>目录</h2>
+  <ul id="toc-list"><li>加载中...</li></ul>
+</div>
+
+<div id="main">
+  <div id="toolbar">
+    <div id="title">加载中...</div>
+    <button id="prevBtn" title="上一页">←</button>
+    <button id="nextBtn" title="下一页">→</button>
+    <button id="pageToggleBtn" title="切换页面模式">双页</button>
+    <button id="tocToggleBtn" title="显示/隐藏目录">目录</button>
+    <button id="fontIncreaseBtn" title="放大字体">A+</button>
+    <button id="fontDecreaseBtn" title="缩小字体">A-</button>
+    <button id="modeToggleBtn" title="切换主题模式（日间颜色主题/夜间模式）">🌙</button>
+  </div>
+  <div id="viewer">
+    <div id="viewport"></div>
+  </div>
+</div>
+<!-- 加载依赖库 -->
+<script src="jszip.min.js"></script>
+<script src="localforage.min.js"></script>
+<script src="marked.min.js"></script>
+<script src="epub.min.js"></script>
+
+<!-- 你自己写的功能逻辑 -->
+<script src="reader.js"></script>
+
+</body>
+</html>
