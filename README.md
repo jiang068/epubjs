@@ -33,7 +33,7 @@
 git clone https://github.com/jiang068/epubjs.git
 
 # 启动本地服务器（以Python为例）
-cd epubjs-main
+cd epubjs
 python -m http.server 8000
 
 # 在浏览器中访问
