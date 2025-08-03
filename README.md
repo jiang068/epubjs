@@ -1,6 +1,8 @@
 # EPUB.js 阅读器
 
-一个基于 [EPUB.js](https://github.com/intity/epub-js) 的现代化网页EPUB电子书阅读器，支持多种阅读模式和主题。
+一个基于 [EPUB.js](https://github.com/intity/epub-js) 的现代化网页EPUB电子书阅读器，支持多种阅读模式和主题。  
+
+可应用于Alist/Openlist的Epub文件预览。
 
 ## ✨ 特性
 
@@ -20,12 +22,22 @@
 - **字体大小调节** - A+/A- 按钮快速调整字体大小
 - **页面布局切换** - 支持单页/双页模式切换，支持桌面/移动端
 
-## 🚀 部署指南
+## 🚀 使用指南
 
+### 直接使用
+可以直接使用本仓库的github-pages;  
+
+但是如果连不上github可能就用不了：
+```url
+# Alist/Openlist使用这个：
+https://jiang068.github.io/epubjs/test.html?url=$durl
+
+# 其他用途使用这种，请自己拼接链接：
+https://jiang068.github.io/epubjs/test.html?url=你的EPUB文件地址
+```
 ### 在线部署
 1. 将项目文件部署到Web服务器
-2. 在浏览器中访问 `test.html?url=你的EPUB文件地址`
-3. 开始阅读！
+2. 在浏览器中访问 `test.html?url=你的EPUB文件地址`即可
 
 ### 本地运行
 ```bash
