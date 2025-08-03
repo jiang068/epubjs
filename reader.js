@@ -1,3 +1,4 @@
+// Origin by https://github.com/jiang068/epubjs
 (function(){
 console.log("EPUB Reader initializing...");
 
