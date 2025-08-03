@@ -32,6 +32,8 @@ https://jiang068.github.io/epubjs/test.html?url=$durl
 
 # 其他用途使用这种，请自己拼接链接：
 https://jiang068.github.io/epubjs/test.html?url=你的EPUB文件地址
+
+# 注意：有的浏览器不允许在https站点后面加载http资源，所以EPUB文件地址最好是https的
 ```
 ### 在线部署
 1. 将项目文件部署到Web服务器
