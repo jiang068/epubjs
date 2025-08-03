@@ -1,6 +1,6 @@
 # EPUB.js 阅读器
 
-一个基于 [EPUB.js](https://github.com/futurepress/epub.js) 的现代化网页EPUB电子书阅读器，支持多种阅读模式和主题。
+一个基于 [EPUB.js](https://github.com/intity/epub-js) 的现代化网页EPUB电子书阅读器，支持多种阅读模式和主题。
 
 ## ✨ 特性
 
