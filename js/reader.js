@@ -179,8 +179,6 @@ function preserveOriginalStyles(rendition) {
 function applyThemeMode(mode) {
     if (!rendition || !rendition.themes) return;
     
-    console.log("Applying theme mode:", mode);
-    
     try {
         const isNightMode = mode === 4;
         const colorThemeIndex = isNightMode ? 0 : mode;
@@ -422,7 +420,15 @@ function renderBook() {
 
     displayPromise.then(() => {
         console.log("Content displayed successfully");
-        titleEl.textContent = book.metadata?.title || "EPUB内容已加载";
+        
+        // 直接使用第一个TOC项目设置标题
+        if (book.navigation && book.navigation.toc && book.navigation.toc.length > 0) {
+            const firstTocItem = book.navigation.toc[0];
+            titleEl.textContent = firstTocItem.label || "第一章";
+            console.log("Title set to:", titleEl.textContent);
+        } else {
+            titleEl.textContent = book.metadata?.title || "EPUB内容已加载";
+        }
         
         // 只在首次加载时从localStorage读取用户保存的模式偏好
         if (!modeLoaded) {
@@ -458,7 +464,7 @@ function renderBook() {
     rendition.on("relocated", location => {
         try {
         currentLocation = location.start;
-        updateTitle(location);
+        updateTitle(location.start);
         updateNavButtons();
         highlightToc(location.start?.href);
         } catch (relocatedError) {
@@ -466,14 +472,51 @@ function renderBook() {
         }
     });
 
+    // 尝试监听其他可能的位置更新事件
+    rendition.on("locationChanged", location => {
+        try {
+            updateTitle(location);
+        } catch (e) {
+            console.warn("Error in locationChanged handler:", e);
+        }
+    });
+
+    rendition.on("moved", location => {
+        console.log("Moved event fired:", location);
+        try {
+            updateTitle(location);
+        } catch (e) {
+            console.warn("Error in moved handler:", e);
+        }
+    });
+
+    rendition.on("displayed", location => {
+        try {
+            if (location && location.href) {
+                updateTitle(location);
+            }
+        } catch (e) {
+            console.warn("Error in displayed handler:", e);
+        }
+    });
+
     // 添加渲染错误监听
     rendition.on("rendered", () => {
-        console.log("Page rendered successfully");
-        
         // 在每次页面渲染完成后重新应用当前主题模式
         setTimeout(() => {
             applyThemeMode(currentMode);
         }, 100);
+        
+        // 在页面渲染完成后尝试更新标题
+        setTimeout(() => {
+            if (rendition && rendition.location) {
+                updateTitle(rendition.location.start || rendition.location);
+            } else {
+                // 使用当前显示的位置信息
+                const currentHref = book.navigation?.toc?.[0]?.href || "cover.xhtml";
+                updateTitle({ href: currentHref });
+            }
+        }, 200);
     });
 
     // 添加错误监听
@@ -605,12 +648,44 @@ function renderBookWithLocation(targetLocation) {
 
     rendition.on("relocated", location => {
         try {
+        console.log("Relocated event fired with location:", location);
         currentLocation = location.start;
-        updateTitle(location);
+        console.log("Current location set to:", currentLocation);
+        updateTitle(location.start);
         updateNavButtons();
         highlightToc(location.start?.href);
         } catch (relocatedError) {
         console.warn("Error in relocated handler:", relocatedError);
+        }
+    });
+
+    // 尝试监听其他可能的位置更新事件
+    rendition.on("locationChanged", location => {
+        console.log("LocationChanged event fired:", location);
+        try {
+            updateTitle(location);
+        } catch (e) {
+            console.warn("Error in locationChanged handler:", e);
+        }
+    });
+
+    rendition.on("moved", location => {
+        console.log("Moved event fired:", location);
+        try {
+            updateTitle(location);
+        } catch (e) {
+            console.warn("Error in moved handler:", e);
+        }
+    });
+
+    rendition.on("displayed", location => {
+        console.log("Displayed event fired:", location);
+        try {
+            if (location && location.href) {
+                updateTitle(location);
+            }
+        } catch (e) {
+            console.warn("Error in displayed handler:", e);
         }
     });
 
@@ -621,6 +696,20 @@ function renderBookWithLocation(targetLocation) {
         setTimeout(() => {
             applyThemeMode(currentMode);
         }, 100);
+        
+        // 在页面渲染完成后尝试更新标题
+        setTimeout(() => {
+            console.log("Trying to update title after render...");
+            if (rendition && rendition.location) {
+                console.log("Found rendition.location:", rendition.location);
+                updateTitle(rendition.location.start || rendition.location);
+            } else {
+                console.log("No rendition.location found, using display location");
+                // 使用当前显示的位置信息
+                const currentHref = book.navigation?.toc?.[0]?.href || "cover.xhtml";
+                updateTitle({ href: currentHref });
+            }
+        }, 200);
     });
 
     rendition.on("error", (error) => {
@@ -635,21 +724,67 @@ function renderBookWithLocation(targetLocation) {
 
 function updateTitle(location) {
     let title = "无标题";
+    
     if(useToc && book.navigation && book.navigation.toc && book.navigation.toc.length > 0){
-    if(location && location.href){
-        // 尝试从目录匹配标题
-        let hrefNoHash = location.href.split('#')[0];
-        const tocItem = book.navigation.toc.find(item => item.href.split('#')[0] === hrefNoHash);
-        if(tocItem){
-        title = tocItem.label;
+        if(location && location.href){
+            // 尝试从目录匹配标题
+            let hrefNoHash = location.href.split('#')[0];
+            
+            // 递归搜索所有目录项（包括子项）
+            function findTocItem(tocItems, targetHref) {
+                for (let item of tocItems) {
+                    let itemHref = item.href ? item.href.split('#')[0] : '';
+                    
+                    if (itemHref === targetHref) {
+                        return item;
+                    }
+                    
+                    // 也尝试匹配完整的href（包含hash）
+                    if (item.href === location.href) {
+                        return item;
+                    }
+                    
+                    // 检查子项
+                    if (item.subitems && item.subitems.length > 0) {
+                        let found = findTocItem(item.subitems, targetHref);
+                        if (found) return found;
+                    }
+                }
+                return null;
+            }
+            
+            const tocItem = findTocItem(book.navigation.toc, hrefNoHash);
+            if(tocItem){
+                title = tocItem.label;
+            } else {
+                // 如果找不到精确匹配，尝试部分匹配
+                const partialMatch = book.navigation.toc.find(item => {
+                    if (!item.href) return false;
+                    let itemHref = item.href.split('#')[0];
+                    return hrefNoHash.includes(itemHref) || itemHref.includes(hrefNoHash);
+                });
+                
+                if (partialMatch) {
+                    title = partialMatch.label;
+                } else {
+                    // 使用文件名作为标题
+                    let filename = hrefNoHash.split('/').pop();
+                    title = filename || hrefNoHash;
+                }
+            }
+        }
+    } else {
+        // 无目录用 spine href 或 cfi
+        if (location?.href) {
+            let filename = location.href.split('/').pop().split('#')[0];
+            title = filename || location.href;
+        } else if (location?.cfi) {
+            title = "第 " + (spineItems.findIndex(href => location.cfi.includes(href)) + 1) + " 页";
         } else {
-        title = hrefNoHash;
+            title = "无标题";
         }
     }
-    } else {
-    // 无目录用 spine href 或 cfi
-    title = location?.href || location?.cfi || "无标题";
-    }
+    
     titleEl.textContent = title;
 }
 
@@ -732,8 +867,10 @@ function buildToc(navigation) {
         li.dataset.href = (item.href || '').split('#')[0];
         li.onclick = () => {
             if (rendition && item.href) {
-            console.log("TOC click, navigating to:", item.href);
-            rendition.display(item.href).catch(navError => {
+            rendition.display(item.href).then(() => {
+                // 直接使用点击的项目更新标题
+                updateTitle({ href: item.href });
+            }).catch(navError => {
                 console.error("Navigation failed:", navError);
             });
             
