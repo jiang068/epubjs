@@ -58,13 +58,17 @@ http://127.0.0.1:8000/test.html?url=https://example.com/sample.epub
 ```
 epubjs/
 ├── test.html          # 主页面文件
-├── reader.js          # 核心阅读器逻辑
 ├── style.css          # 样式文件
-├── epub.min.js        # EPUB.js 核心库
-├── jszip.min.js       # ZIP解压库
-├── localforage.min.js # 本地存储库
-├── marked.min.js      # Markdown解析库
-└── README.md          # 项目说明
+├── README.md          # 项目说明
+├── js/                # JavaScript文件目录
+│   ├── reader.js      # 核心阅读器逻辑
+│   ├── epub.min.js    # EPUB.js 核心库
+│   ├── jszip.min.js   # ZIP解压库
+│   ├── localforage.min.js # 本地存储库
+│   └── marked.min.js  # Markdown解析库
+└── pics/              # 图片资源目录
+    ├── demo1.jpg      # 界面预览图1
+    └── demo2.jpg      # 界面预览图2
 ```
 
 ## 🔧 技术细节
@@ -78,7 +82,7 @@ epubjs/
 ### 功能分布：本仓库
 1. 在 `test.html` 中添加UI元素
 2. 在 `style.css` 中添加样式
-3. 在 `reader.js` 中实现功能逻辑
+3. 在 `js/reader.js` 中实现功能逻辑
 
 ## 📋 Todo
 
