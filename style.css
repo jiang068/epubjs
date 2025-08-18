@@ -58,38 +58,48 @@ height: 100vh;
 }
 #toolbar {
 background: #eee;
-padding: 0.2em 0.5em; /* 减少上下内边距 */
+padding: 0.1em 0.5em; /* 减少上下内边距 */
 display: flex;
 align-items: center;
-gap: 10px;
+gap: 6px; /* 减少按钮间距 */
 user-select: none;
 /* 为工具栏指定合适的字体 */
 font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Microsoft YaHei", "微软雅黑", sans-serif;
-flex-wrap: wrap; /* 允许换行 */
-min-height: 35px; /* 减少最小高度，让工具栏更紧凑 */
+flex-wrap: nowrap; /* 不换行，保持水平排列 */
+min-height: 28px; /* 减少最小高度 */
+justify-content: space-between; /* 标题在左，按钮组在右 */
 }
 body.night #toolbar {
 background: #222;
 color: #e0e0e0;
 }
 #title {
-flex: 1;
 font-weight: bold;
 font-size: 1.1em;
 overflow: hidden;
 white-space: nowrap;
 text-overflow: ellipsis;
 min-width: 0; /* 允许flex收缩 */
-max-width: calc(100% - 300px); /* 为按钮留出空间 */
+flex: 1; /* 占用剩余空间 */
+margin-right: 10px; /* 与按钮组的间距 */
 }
+
+/* 按钮组容器 */
+.toolbar-buttons {
+display: flex;
+align-items: center;
+gap: 4px; /* 按钮间的小间距 */
+flex-shrink: 0; /* 按钮组不被压缩 */
+}
+
 button {
-padding: 0.15em 0.5em; /* 减少按钮内边距 */
+padding: 0.1em 0.4em; /* 减少按钮内边距 */
 cursor: pointer;
 background: #0078d7;
 border: none;
 color: white;
 border-radius: 3px;
-font-size: 1em;
+font-size: 0.9em; /* 稍微减小字体 */
 /* 为按钮指定合适的字体 */
 font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Microsoft YaHei", "微软雅黑", sans-serif;
 flex-shrink: 0; /* 防止按钮被压缩 */
