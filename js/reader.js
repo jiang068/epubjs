@@ -133,43 +133,6 @@ function getViewportSize() {
     };
 }
 
-// 保护EPUB原始样式的函数
-function preserveOriginalStyles(rendition) {
-    if (!rendition) return;
-    
-    // 监听渲染完成事件，确保不会过度覆盖原始样式
-    rendition.on("rendered", (section) => {
-    try {
-        // 获取iframe文档
-        const iframe = document.querySelector('#viewport iframe');
-        if (iframe && iframe.contentDocument) {
-        const doc = iframe.contentDocument;
-        
-        // 添加一个温和的基础样式，只在必要时覆盖
-        let baseStyle = doc.getElementById('epub-base-style');
-        if (!baseStyle) {
-            baseStyle = doc.createElement('style');
-            baseStyle.id = 'epub-base-style';
-            baseStyle.textContent = `
-            /* 确保文本可读性，但不强制覆盖 */
-            body { 
-                line-height: 1.4; 
-            }
-            `;
-            doc.head.appendChild(baseStyle);
-        }
-        
-        // 在基础样式应用后，重新应用当前主题
-        setTimeout(() => {
-            applyThemeMode(currentMode);
-        }, 50);
-        }
-    } catch (e) {
-        console.warn("Failed to preserve original styles:", e);
-    }
-    });
-}
-
 // 应用综合主题模式（包含文字颜色和夜间模式）
 function applyThemeMode(mode) {
     if (!rendition || !rendition.themes) return;
@@ -345,15 +308,10 @@ function renderBook() {
         "font-size": fontSize + "%"
         },
         allowScriptedContent: true,
-        sandbox: ["allow-same-origin", "allow-scripts"],
-        // 保护原始样式设置
-        preserveOriginalCSS: true
+        sandbox: ["allow-same-origin", "allow-scripts"]
     });
 
     console.log("Rendition created, attempting to display...");
-
-    // 保护原始样式
-    preserveOriginalStyles(rendition);
 
     // 根据是否使用目录决定显示哪个章节
     let displayPromise;
@@ -468,11 +426,6 @@ function renderBook() {
 
     // 添加渲染错误监听
     rendition.on("rendered", () => {
-        // 在每次页面渲染完成后重新应用当前主题模式
-        setTimeout(() => {
-            applyThemeMode(currentMode);
-        }, 100);
-        
         // 在页面渲染完成后尝试更新标题
         setTimeout(() => {
             if (rendition && rendition.location) {
@@ -526,15 +479,10 @@ function renderBookWithLocation(targetLocation) {
         "font-size": fontSize + "%"
         },
         allowScriptedContent: true,
-        sandbox: ["allow-same-origin", "allow-scripts"],
-        // 保护原始样式设置
-        preserveOriginalCSS: true
+        sandbox: ["allow-same-origin", "allow-scripts"]
     });
 
     console.log("Rendition created, attempting to display at saved location...");
-
-    // 保护原始样式
-    preserveOriginalStyles(rendition);
 
     // 显示到指定位置 - 处理不同格式的位置对象
     let displayPromise;
@@ -625,11 +573,6 @@ function renderBookWithLocation(targetLocation) {
 
     rendition.on("rendered", () => {
         console.log("Page rendered successfully");
-        
-        // 在每次页面渲染完成后重新应用当前主题模式
-        setTimeout(() => {
-            applyThemeMode(currentMode);
-        }, 100);
         
         // 在页面渲染完成后尝试更新标题
         setTimeout(() => {
