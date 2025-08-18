@@ -128,51 +128,46 @@ function getViewportSize() {
 
 // 应用综合主题模式（包含文字颜色和夜间模式）- 只影响文字和背景，不影响图片
 function applyThemeMode(mode) {
-    if (!rendition || !rendition.themes) return;
+    if (!rendition) return;
     
     try {
         const isNightMode = mode === 3;
         const colorThemeIndex = isNightMode ? 0 : mode;
         
+        // 首先处理外部body的样式
         if (isNightMode) {
-            // 夜间模式
             document.body.classList.add("night");
-            
-            if (typeof rendition.themes.dark === 'function') {
-                rendition.themes.dark();
-            } else if (rendition.themes.select) {
-                rendition.themes.select('dark');
-            } else if (rendition.themes.register) {
-                rendition.themes.register("darkMode", {
-                    "body": {
-                        "color": "#e0e0e0",
-                        "background": "#1a1a1a"
-                    },
-                    "p, div, span, h1, h2, h3, h4, h5, h6": {
-                        "color": "#e0e0e0"
-                    },
-                    "a": {
-                        "color": "#66b3ff"
-                    }
-                });
-                rendition.themes.select("darkMode");
-            }
-            
-            // iframe样式注入 - 只影响文字元素，不影响图片
-            setTimeout(() => {
-                try {
-                    const iframes = document.querySelectorAll('#viewport iframe');
-                    iframes.forEach(iframe => {
-                        try {
-                            const doc = iframe.contentDocument || iframe.contentWindow.document;
-                            if (doc) {
-                                let style = doc.getElementById('epub-theme-style');
-                                if (!style) {
-                                    style = doc.createElement('style');
-                                    style.id = 'epub-theme-style';
+        } else {
+            document.body.classList.remove("night");
+        }
+        
+        // 直接通过iframe样式注入，不使用EPUB.js的主题系统
+        setTimeout(() => {
+            try {
+                const iframes = document.querySelectorAll('#viewport iframe');
+                iframes.forEach(iframe => {
+                    try {
+                        const doc = iframe.contentDocument || iframe.contentWindow.document;
+                        if (doc) {
+                            // 安全地移除之前的主题样式
+                            try {
+                                const oldStyle = doc.getElementById('epub-reader-theme');
+                                if (oldStyle && oldStyle.parentNode) {
+                                    oldStyle.parentNode.removeChild(oldStyle);
                                 }
-                                // 只设置文字相关样式，完全不涉及图片
-                                style.textContent = `
+                            } catch (e) {
+                                // 忽略移除错误
+                            }
+                            
+                            // 创建新的主题样式
+                            const themeStyle = doc.createElement('style');
+                            themeStyle.id = 'epub-reader-theme';
+                            
+                            let cssContent = '';
+                            
+                            if (isNightMode) {
+                                // 夜间模式样式
+                                cssContent = `
                                     body { 
                                         background: #1a1a1a !important; 
                                         color: #e0e0e0 !important; 
@@ -184,162 +179,39 @@ function applyThemeMode(mode) {
                                         color: #66b3ff !important; 
                                     }
                                 `;
-                                doc.head.appendChild(style);
-                            }
-                        } catch (e) {
-                            console.warn("Cannot access iframe content:", e);
-                        }
-                    });
-                } catch (e) {
-                    console.warn("Failed to inject dark mode styles:", e);
-                }
-            }, 300);
-            
-        } else {
-            // 日间模式（含颜色主题）
-            document.body.classList.remove("night");
-            
-            const theme = textColorThemes[colorThemeIndex];
-            if (theme) {
-                if (colorThemeIndex === 0) {
-                    // 默认主题：彻底重置到EPUB原始样式
-                    try {
-                        // 首先尝试清除所有已注册的自定义主题
-                        ['colorTheme1', 'colorTheme2', 'colorTheme3', 'darkMode', 'fontSizeAdjust'].forEach(themeName => {
-                            try {
-                                if (rendition.themes.unregister) {
-                                    rendition.themes.unregister(themeName);
-                                }
-                            } catch (e) {
-                                // 忽略清除不存在主题的错误
-                            }
-                        });
-                        
-                        // 安全地移除样式覆盖
-                        if (rendition.themes.override) {
-                            ['color', 'background', 'background-color'].forEach(prop => {
-                                try {
-                                    rendition.themes.override(prop, '');
-                                } catch (e) {
-                                    // 忽略覆盖不存在属性的错误
-                                }
-                            });
-                        }
-                        
-                        // 安全地重置到默认主题
-                        try {
-                            if (rendition.themes.default && typeof rendition.themes.default === 'function') {
-                                rendition.themes.default();
-                            }
-                        } catch (e) {
-                            console.warn("Failed to apply default theme:", e);
-                        }
-                        
-                        console.log("Default theme reset completed");
-                    } catch (e) {
-                        console.warn("Failed to reset to default theme:", e);
-                    }
-                } else {
-                    // 非默认主题：注册并应用主题
-                    const themeName = `colorTheme${colorThemeIndex}`;
-                    rendition.themes.register(themeName, theme.styles);
-                    rendition.themes.select(themeName);
-                }
-                
-                // iframe样式注入 - 只影响文字元素，不影响图片
-                setTimeout(() => {
-                    try {
-                        const iframes = document.querySelectorAll('#viewport iframe');
-                        iframes.forEach(iframe => {
-                            try {
-                                const doc = iframe.contentDocument || iframe.contentWindow.document;
-                                if (doc) {
-                                    // 移除之前的主题样式
-                                    const oldStyle = doc.getElementById('epub-theme-style');
-                                    if (oldStyle) {
-                                        oldStyle.remove();
-                                    }
-                                    
-                                    // 如果是默认主题，确保完全清除样式；如果不是默认主题，添加新的颜色样式
-                                    if (colorThemeIndex === 0) {
-                                        // 默认主题：彻底清除所有自定义样式，恢复原始EPUB样式
-                                        // 安全地移除所有可能的主题样式元素
-                                        ['epub-theme-style', 'epub-color-theme', 'custom-theme-style', 'reader-theme'].forEach(id => {
-                                            try {
-                                                const existingStyle = doc.getElementById(id);
-                                                if (existingStyle && existingStyle.parentNode) {
-                                                    existingStyle.parentNode.removeChild(existingStyle);
-                                                }
-                                            } catch (e) {
-                                                // 忽略移除不存在元素的错误
+                            } else {
+                                // 日间模式样式
+                                const theme = textColorThemes[colorThemeIndex];
+                                if (theme && colorThemeIndex > 0) {
+                                    // 应用颜色主题
+                                    for (const [selector, styles] of Object.entries(theme.styles)) {
+                                        const safeSelector = selector === 'body' ? 'body' : 
+                                            selector + ':not(:has(img))';
+                                        cssContent += `${safeSelector} { `;
+                                        for (const [property, value] of Object.entries(styles)) {
+                                            if (value) {
+                                                cssContent += `${property}: ${value} !important; `;
                                             }
-                                        });
-                                        
-                                        // 安全地移除所有可能的style标签
-                                        try {
-                                            const allStyles = doc.querySelectorAll('style[id*="theme"], style[id*="color"], style[id*="mode"]');
-                                            allStyles.forEach(style => {
-                                                try {
-                                                    if (style.parentNode) {
-                                                        style.parentNode.removeChild(style);
-                                                    }
-                                                } catch (e) {
-                                                    // 忽略移除不存在元素的错误
-                                                }
-                                            });
-                                        } catch (e) {
-                                            // 忽略查询不存在元素的错误
                                         }
-                                        
-                                        // 安全地重置body样式
-                                        try {
-                                            if (doc.body) {
-                                                ['background', 'background-color', 'color'].forEach(prop => {
-                                                    try {
-                                                        doc.body.style.removeProperty(prop);
-                                                    } catch (e) {
-                                                        // 忽略移除不存在属性的错误
-                                                    }
-                                                });
-                                            }
-                                        } catch (e) {
-                                            // 忽略body不存在的错误
-                                        }
-                                        
-                                        console.log("Default theme iframe cleanup completed");
-                                    } else {
-                                        // 非默认主题：添加新的颜色样式
-                                        const colorStyle = doc.createElement('style');
-                                        colorStyle.id = 'epub-theme-style';
-                                        
-                                        let cssText = '';
-                                        for (const [selector, styles] of Object.entries(theme.styles)) {
-                                            // 确保选择器不会影响图片容器
-                                            const safeSelector = selector === 'body' ? 'body' : 
-                                                selector + ':not(:has(img))';
-                                            cssText += `${safeSelector} { `;
-                                            for (const [property, value] of Object.entries(styles)) {
-                                                if (value) {
-                                                    cssText += `${property}: ${value} !important; `;
-                                                }
-                                            }
-                                            cssText += `}\n`;
-                                        }
-                                        
-                                        colorStyle.textContent = cssText;
-                                        doc.head.appendChild(colorStyle);
+                                        cssContent += `}\n`;
                                     }
                                 }
-                            } catch (e) {
-                                console.warn("Cannot access iframe content:", e);
+                                // 对于默认主题（colorThemeIndex === 0），不添加任何样式
                             }
-                        });
+                            
+                            themeStyle.textContent = cssContent;
+                            doc.head.appendChild(themeStyle);
+                            
+                            console.log(`Theme applied: mode ${mode}, isNight: ${isNightMode}`);
+                        }
                     } catch (e) {
-                        console.warn("Failed to apply color theme to iframe:", e);
+                        console.warn("Cannot access iframe content:", e);
                     }
-                }, 300);
+                });
+            } catch (e) {
+                console.warn("Failed to apply theme styles:", e);
             }
-        }
+        }, 200); // 稍微增加延迟
         
         // 更新按钮显示
         updateModeButtonDisplay(mode);
@@ -516,6 +388,29 @@ function renderBook() {
         }
         window.themeApplyTimeout = setTimeout(() => {
             applyThemeMode(currentMode);
+            // 同时重新应用字体大小
+            if (fontSize !== 100) {
+                setTimeout(() => {
+                    const iframes = document.querySelectorAll('#viewport iframe');
+                    iframes.forEach(iframe => {
+                        try {
+                            const doc = iframe.contentDocument || iframe.contentWindow.document;
+                            if (doc) {
+                                let fontStyle = doc.getElementById('epub-font-size');
+                                if (!fontStyle) {
+                                    fontStyle = doc.createElement('style');
+                                    fontStyle.id = 'epub-font-size';
+                                    doc.head.appendChild(fontStyle);
+                                }
+                                fontStyle.textContent = `
+                                    body { font-size: ${fontSize}% !important; }
+                                    p, div, span { font-size: inherit !important; }
+                                `;
+                            }
+                        } catch (e) {}
+                    });
+                }, 100);
+            }
         }, 150); // 增加延迟时间
         
         // 在页面渲染完成后尝试更新标题
@@ -672,6 +567,29 @@ function renderBookWithLocation(targetLocation) {
         }
         window.themeApplyTimeout2 = setTimeout(() => {
             applyThemeMode(currentMode);
+            // 同时重新应用字体大小
+            if (fontSize !== 100) {
+                setTimeout(() => {
+                    const iframes = document.querySelectorAll('#viewport iframe');
+                    iframes.forEach(iframe => {
+                        try {
+                            const doc = iframe.contentDocument || iframe.contentWindow.document;
+                            if (doc) {
+                                let fontStyle = doc.getElementById('epub-font-size');
+                                if (!fontStyle) {
+                                    fontStyle = doc.createElement('style');
+                                    fontStyle.id = 'epub-font-size';
+                                    doc.head.appendChild(fontStyle);
+                                }
+                                fontStyle.textContent = `
+                                    body { font-size: ${fontSize}% !important; }
+                                    p, div, span { font-size: inherit !important; }
+                                `;
+                            }
+                        } catch (e) {}
+                    });
+                }, 100);
+            }
         }, 150); // 增加延迟时间
         
         // 在页面渲染完成后尝试更新标题
@@ -934,56 +852,88 @@ nextBtn.onclick = () => {
 };
 
 fontIncreaseBtn.onclick = () => {
-    if (!rendition || !rendition.themes) return;
+    if (!rendition) return;
     fontSize += 10;
     if (fontSize > 200) fontSize = 200;
     
-    // 温和地调整字体大小，不破坏原始样式
+    // 直接通过iframe样式调整字体，避免使用EPUB.js主题系统
     try {
-    if (rendition.themes.fontSize) {
-        rendition.themes.fontSize(fontSize + "%");
-    } else if (rendition.themes.override) {
-        rendition.themes.override("fontSize", fontSize + "%");
-    } else if (rendition.themes.register) {
-        rendition.themes.register("fontSizeAdjust", {
-        "body": { "font-size": fontSize + "%" },
-        "p": { "font-size": "inherit" },
-        "div": { "font-size": "inherit" }
-        });
-        rendition.themes.select("fontSizeAdjust");
-    }
+        setTimeout(() => {
+            const iframes = document.querySelectorAll('#viewport iframe');
+            iframes.forEach(iframe => {
+                try {
+                    const doc = iframe.contentDocument || iframe.contentWindow.document;
+                    if (doc) {
+                        // 移除旧的字体样式
+                        try {
+                            const oldFontStyle = doc.getElementById('epub-font-size');
+                            if (oldFontStyle && oldFontStyle.parentNode) {
+                                oldFontStyle.parentNode.removeChild(oldFontStyle);
+                            }
+                        } catch (e) {}
+                        
+                        // 添加新的字体样式
+                        const fontStyle = doc.createElement('style');
+                        fontStyle.id = 'epub-font-size';
+                        fontStyle.textContent = `
+                            body { font-size: ${fontSize}% !important; }
+                            p, div, span { font-size: inherit !important; }
+                        `;
+                        doc.head.appendChild(fontStyle);
+                    }
+                } catch (e) {
+                    console.warn("Cannot access iframe for font adjustment:", e);
+                }
+            });
+        }, 50);
     } catch (fontError) {
-    console.warn("Failed to adjust font size:", fontError);
+        console.warn("Failed to adjust font size:", fontError);
     }
 };
 
 fontDecreaseBtn.onclick = () => {
-    if (!rendition || !rendition.themes) return;
+    if (!rendition) return;
     fontSize -= 10;
     if (fontSize < 50) fontSize = 50;
     
-    // 温和地调整字体大小，不破坏原始样式
+    // 直接通过iframe样式调整字体，避免使用EPUB.js主题系统
     try {
-    if (rendition.themes.fontSize) {
-        rendition.themes.fontSize(fontSize + "%");
-    } else if (rendition.themes.override) {
-        rendition.themes.override("fontSize", fontSize + "%");
-    } else if (rendition.themes.register) {
-        rendition.themes.register("fontSizeAdjust", {
-        "body": { "font-size": fontSize + "%" },
-        "p": { "font-size": "inherit" },
-        "div": { "font-size": "inherit" }
-        });
-        rendition.themes.select("fontSizeAdjust");
-    }
+        setTimeout(() => {
+            const iframes = document.querySelectorAll('#viewport iframe');
+            iframes.forEach(iframe => {
+                try {
+                    const doc = iframe.contentDocument || iframe.contentWindow.document;
+                    if (doc) {
+                        // 移除旧的字体样式
+                        try {
+                            const oldFontStyle = doc.getElementById('epub-font-size');
+                            if (oldFontStyle && oldFontStyle.parentNode) {
+                                oldFontStyle.parentNode.removeChild(oldFontStyle);
+                            }
+                        } catch (e) {}
+                        
+                        // 添加新的字体样式
+                        const fontStyle = doc.createElement('style');
+                        fontStyle.id = 'epub-font-size';
+                        fontStyle.textContent = `
+                            body { font-size: ${fontSize}% !important; }
+                            p, div, span { font-size: inherit !important; }
+                        `;
+                        doc.head.appendChild(fontStyle);
+                    }
+                } catch (e) {
+                    console.warn("Cannot access iframe for font adjustment:", e);
+                }
+            });
+        }, 50);
     } catch (fontError) {
-    console.warn("Failed to adjust font size:", fontError);
+        console.warn("Failed to adjust font size:", fontError);
     }
 };
 
 // 综合主题模式切换按钮（日间颜色主题 + 夜间模式）
 modeToggleBtn.onclick = () => {
-    if (!rendition || !rendition.themes) return;
+    if (!rendition) return;
     
     // 防止频繁点击
     if (window.modeToggleTimeout) {
