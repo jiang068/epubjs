@@ -65,6 +65,8 @@ gap: 10px;
 user-select: none;
 /* 为工具栏指定合适的字体 */
 font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Microsoft YaHei", "微软雅黑", sans-serif;
+flex-wrap: wrap; /* 允许换行 */
+min-height: 40px; /* 最小高度确保按钮可见 */
 }
 body.night #toolbar {
 background: #222;
@@ -77,6 +79,8 @@ font-size: 1.1em;
 overflow: hidden;
 white-space: nowrap;
 text-overflow: ellipsis;
+min-width: 0; /* 允许flex收缩 */
+max-width: calc(100% - 300px); /* 为按钮留出空间 */
 }
 button {
 padding: 0.2em 0.6em;
@@ -88,6 +92,8 @@ border-radius: 3px;
 font-size: 1em;
 /* 为按钮指定合适的字体 */
 font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Microsoft YaHei", "微软雅黑", sans-serif;
+flex-shrink: 0; /* 防止按钮被压缩 */
+white-space: nowrap; /* 防止按钮文字换行 */
 }
 button:disabled {
 background: #aaa;
@@ -130,6 +136,53 @@ margin: 0 auto;
 #toc { display: none; }
 body.double-page #viewport {
     width: 100%;
+}
+
+/* 手机端工具栏优化 */
+#toolbar {
+    padding: 0.2em 0.3em;
+    gap: 5px;
+    flex-wrap: nowrap; /* 手机端不换行，强制水平排列 */
+}
+
+#title {
+    font-size: 0.9em; /* 减小字体 */
+    max-width: calc(100vw - 320px); /* 为按钮预留更多空间 */
+    min-width: 80px; /* 最小宽度确保可读性 */
+}
+
+button {
+    padding: 0.15em 0.4em; /* 减少按钮内边距 */
+    font-size: 0.85em; /* 减小字体 */
+    min-width: 30px; /* 确保按钮最小可点击区域 */
+}
+
+/* 优化重要按钮显示 */
+#prevBtn, #nextBtn, #modeToggleBtn, #tocToggleBtn {
+    flex-shrink: 0; /* 这些按钮永远不被压缩 */
+}
+
+/* 在极小屏幕上进一步优化 */
+@media(max-width:480px) {
+    #title {
+        max-width: calc(100vw - 250px);
+        font-size: 0.8em;
+    }
+    
+    button {
+        padding: 0.1em 0.3em;
+        font-size: 0.8em;
+        min-width: 28px;
+    }
+    
+    /* 在极小屏幕上隐藏不太重要的按钮文字，只保留符号 */
+    #fontIncreaseBtn::after { content: ""; }
+    #fontDecreaseBtn::after { content: ""; }
+    #pageToggleBtn { 
+        width: 35px;
+        overflow: hidden;
+        text-overflow: ellipsis;
+    }
 }
 }
 /* 所有按钮在所有设备上都显示 */

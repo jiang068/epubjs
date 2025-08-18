@@ -785,6 +785,17 @@ function updateTitle(location) {
         }
     }
     
+    // 手机端限制标题长度，确保按钮可见
+    if (window.innerWidth <= 768) {
+        if (title.length > 15) {
+            title = title.substring(0, 15) + "...";
+        }
+    } else if (window.innerWidth <= 480) {
+        if (title.length > 10) {
+            title = title.substring(0, 10) + "...";
+        }
+    }
+    
     titleEl.textContent = title;
 }
 
@@ -1122,16 +1133,21 @@ let resizeTimeout;
 window.addEventListener("resize", () => {
     clearTimeout(resizeTimeout);
     resizeTimeout = setTimeout(() => {
-    if (rendition) {
-        console.log("Window resized, updating rendition size...");
-        const size = getViewportSize();
-        let rendWidth = size.width;
-        if(document.body.classList.contains("double-page") && window.innerWidth > 768){
-        rendWidth = rendWidth / 2;
+        if (rendition) {
+            console.log("Window resized, updating rendition size...");
+            const size = getViewportSize();
+            let rendWidth = size.width;
+            if(document.body.classList.contains("double-page") && window.innerWidth > 768){
+                rendWidth = rendWidth / 2;
+            }
+            // 只更新尺寸，不重新渲染整个书本
+            rendition.resize(rendWidth, size.height);
+            
+            // 窗口大小变化时重新计算标题长度
+            if (currentLocation) {
+                updateTitle(currentLocation);
+            }
         }
-        // 只更新尺寸，不重新渲染整个书本
-        rendition.resize(rendWidth, size.height);
-    }
     }, 250);
 });
 
