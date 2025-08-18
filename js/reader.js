@@ -151,11 +151,6 @@ function preserveOriginalStyles(rendition) {
             baseStyle = doc.createElement('style');
             baseStyle.id = 'epub-base-style';
             baseStyle.textContent = `
-            /* 只设置最基本的响应式样式，不破坏原始格式 */
-            img { 
-                max-width: 100%; 
-                height: auto; 
-            }
             /* 确保文本可读性，但不强制覆盖 */
             body { 
                 line-height: 1.4; 
@@ -360,35 +355,6 @@ function renderBook() {
     // 保护原始样式
     preserveOriginalStyles(rendition);
 
-    // 添加图片自适应样式 - 温和的样式设置，不破坏原始格式
-    try {
-        if (rendition.themes && rendition.themes.default) {
-        rendition.themes.default({
-            "img": {
-            "max-width": "100%",
-            "height": "auto"
-            },
-            "image": {
-            "max-width": "100%", 
-            "height": "auto"
-            }
-        });
-        } else if (rendition.themes && rendition.themes.register) {
-        // 备用方法：使用register，只设置必要的图片响应式
-        rendition.themes.register("responsiveImages", {
-            "img": {
-            "max-width": "100%",
-            "height": "auto"
-            }
-        });
-        rendition.themes.select("responsiveImages");
-        } else {
-        console.warn("Unable to apply image styles - themes API not available");
-        }
-    } catch (themeError) {
-        console.warn("Failed to apply image styles:", themeError);
-    }
-
     // 根据是否使用目录决定显示哪个章节
     let displayPromise;
     if(useToc && book.navigation && book.navigation.toc && book.navigation.toc.length > 0) {
@@ -569,38 +535,6 @@ function renderBookWithLocation(targetLocation) {
 
     // 保护原始样式
     preserveOriginalStyles(rendition);
-
-    // 添加图片自适应样式
-    try {
-        if (rendition.themes && rendition.themes.default) {
-        rendition.themes.default({
-            "img": {
-            "max-width": "100% !important",
-            "max-height": "100vh !important",
-            "width": "auto !important",
-            "height": "auto !important",
-            "object-fit": "contain !important",
-            "display": "block !important",
-            "margin": "0 auto !important"
-            }
-        });
-        } else if (rendition.themes && rendition.themes.register) {
-        rendition.themes.register("imageStyles", {
-            "img": {
-            "max-width": "100% !important",
-            "max-height": "100vh !important",
-            "width": "auto !important",
-            "height": "auto !important",
-            "object-fit": "contain !important",
-            "display": "block !important",
-            "margin": "0 auto !important"
-            }
-        });
-        rendition.themes.select("imageStyles");
-        }
-    } catch (themeError) {
-        console.warn("Failed to apply image styles:", themeError);
-    }
 
     // 显示到指定位置 - 处理不同格式的位置对象
     let displayPromise;

@@ -116,12 +116,6 @@ height: 100%;
 font-family: inherit !important;
 }
 
-/* 针对EPUB内容中的图片进行温和的样式调整 */
-#viewport img {
-max-width: 100%;
-height: auto;
-}
-
 /* 确保EPUB内容区域不被外层样式干扰 */
 #viewport * {
 font-family: inherit !important;
