@@ -59,17 +59,10 @@ const textColorThemes = [
             "body": { "color": "#5d4037", "background": "#fef9e7" },
             "p, div, span, h1, h2, h3, h4, h5, h6": { "color": "#5d4037" }
         }
-    },
-    {
-        name: "深蓝",
-        styles: {
-            "body": { "color": "#1a237e", "background": "#e8eaf6" },
-            "p, div, span, h1, h2, h3, h4, h5, h6": { "color": "#1a237e" }
-        }
     }
 ];
 
-// 当前模式：0=日间默认, 1=日间护眼绿, 2=日间暖黄, 3=日间深蓝, 4=夜间
+// 当前模式：0=日间默认, 1=日间护眼绿, 2=日间暖黄, 3=夜间
 let currentMode = 0;
 let modeLoaded = false; // 标志：是否已经从localStorage加载过模式
 let rendition = null;
@@ -133,12 +126,12 @@ function getViewportSize() {
     };
 }
 
-// 应用综合主题模式（包含文字颜色和夜间模式）
+// 应用综合主题模式（包含文字颜色和夜间模式）- 只影响文字和背景，不影响图片
 function applyThemeMode(mode) {
     if (!rendition || !rendition.themes) return;
     
     try {
-        const isNightMode = mode === 4;
+        const isNightMode = mode === 3;
         const colorThemeIndex = isNightMode ? 0 : mode;
         
         if (isNightMode) {
@@ -165,7 +158,7 @@ function applyThemeMode(mode) {
                 rendition.themes.select("darkMode");
             }
             
-            // iframe样式注入
+            // iframe样式注入 - 只影响文字元素，不影响图片
             setTimeout(() => {
                 try {
                     const iframes = document.querySelectorAll('#viewport iframe');
@@ -178,16 +171,17 @@ function applyThemeMode(mode) {
                                     style = doc.createElement('style');
                                     style.id = 'epub-theme-style';
                                 }
+                                // 只设置文字相关样式，完全不涉及图片
                                 style.textContent = `
                                     body { 
-                                        background: #1a1a1a; 
-                                        color: #e0e0e0; 
+                                        background: #1a1a1a !important; 
+                                        color: #e0e0e0 !important; 
                                     }
-                                    p, div, span, h1, h2, h3, h4, h5, h6, li, td, th { 
-                                        color: #e0e0e0; 
+                                    p, div:not(:has(img)), span, h1, h2, h3, h4, h5, h6, li, td, th { 
+                                        color: #e0e0e0 !important; 
                                     }
                                     a { 
-                                        color: #66b3ff; 
+                                        color: #66b3ff !important; 
                                     }
                                 `;
                                 doc.head.appendChild(style);
@@ -207,12 +201,40 @@ function applyThemeMode(mode) {
             
             const theme = textColorThemes[colorThemeIndex];
             if (theme) {
-                // 注册并应用主题
-                const themeName = `colorTheme${colorThemeIndex}`;
-                rendition.themes.register(themeName, theme.styles);
-                rendition.themes.select(themeName);
+                if (colorThemeIndex === 0) {
+                    // 默认主题：重置到EPUB原始样式
+                    try {
+                        // 尝试重置所有已注册的主题
+                        if (rendition.themes.default && typeof rendition.themes.default === 'function') {
+                            rendition.themes.default();
+                        } else if (rendition.themes.select) {
+                            rendition.themes.select('default');
+                        }
+                        // 移除所有自定义主题样式覆盖
+                        if (rendition.themes.override) {
+                            rendition.themes.override('color', '');
+                            rendition.themes.override('background', '');
+                            rendition.themes.override('background-color', '');
+                        }
+                        // 尝试清除已注册的自定义主题
+                        ['colorTheme1', 'colorTheme2'].forEach(themeName => {
+                            try {
+                                if (rendition.themes.unregister) {
+                                    rendition.themes.unregister(themeName);
+                                }
+                            } catch (e) {}
+                        });
+                    } catch (e) {
+                        console.warn("Failed to reset to default theme:", e);
+                    }
+                } else {
+                    // 非默认主题：注册并应用主题
+                    const themeName = `colorTheme${colorThemeIndex}`;
+                    rendition.themes.register(themeName, theme.styles);
+                    rendition.themes.select(themeName);
+                }
                 
-                // iframe样式注入
+                // iframe样式注入 - 只影响文字元素，不影响图片
                 setTimeout(() => {
                     try {
                         const iframes = document.querySelectorAll('#viewport iframe');
@@ -226,17 +248,24 @@ function applyThemeMode(mode) {
                                         oldStyle.remove();
                                     }
                                     
-                                    // 如果不是默认主题，添加新的颜色样式
-                                    if (colorThemeIndex > 0) {
+                                    // 如果是默认主题，确保完全清除样式；如果不是默认主题，添加新的颜色样式
+                                    if (colorThemeIndex === 0) {
+                                        // 默认主题：确保完全清除所有自定义样式，恢复原始EPUB样式
+                                        // 不添加任何新样式，让EPUB使用原本的颜色
+                                    } else {
+                                        // 非默认主题：添加新的颜色样式
                                         const colorStyle = doc.createElement('style');
                                         colorStyle.id = 'epub-theme-style';
                                         
                                         let cssText = '';
                                         for (const [selector, styles] of Object.entries(theme.styles)) {
-                                            cssText += `${selector} { `;
+                                            // 确保选择器不会影响图片容器
+                                            const safeSelector = selector === 'body' ? 'body' : 
+                                                selector + ':not(:has(img))';
+                                            cssText += `${safeSelector} { `;
                                             for (const [property, value] of Object.entries(styles)) {
                                                 if (value) {
-                                                    cssText += `${property}: ${value}; `;
+                                                    cssText += `${property}: ${value} !important; `;
                                                 }
                                             }
                                             cssText += `}\n`;
@@ -267,8 +296,8 @@ function applyThemeMode(mode) {
 
 // 更新模式按钮显示
 function updateModeButtonDisplay(mode) {
-    const modeNames = ["默认", "护眼绿", "暖黄", "深蓝", "夜间"];
-    const isNightMode = mode === 4;
+    const modeNames = ["默认", "护眼绿", "暖黄", "夜间"];
+    const isNightMode = mode === 3;
     
     if (isNightMode) {
         modeToggleBtn.textContent = "🌙";
@@ -426,6 +455,11 @@ function renderBook() {
 
     // 添加渲染错误监听
     rendition.on("rendered", () => {
+        // 在每次页面渲染完成后重新应用当前主题模式（确保换章后主题持续）
+        setTimeout(() => {
+            applyThemeMode(currentMode);
+        }, 100);
+        
         // 在页面渲染完成后尝试更新标题
         setTimeout(() => {
             if (rendition && rendition.location) {
@@ -573,6 +607,11 @@ function renderBookWithLocation(targetLocation) {
 
     rendition.on("rendered", () => {
         console.log("Page rendered successfully");
+        
+        // 在每次页面渲染完成后重新应用当前主题模式（确保换章后主题持续）
+        setTimeout(() => {
+            applyThemeMode(currentMode);
+        }, 100);
         
         // 在页面渲染完成后尝试更新标题
         setTimeout(() => {
@@ -885,8 +924,8 @@ fontDecreaseBtn.onclick = () => {
 modeToggleBtn.onclick = () => {
     if (!rendition || !rendition.themes) return;
     
-    // 循环切换模式：默认 -> 护眼绿 -> 暖黄 -> 深蓝 -> 夜间 -> 默认
-    currentMode = (currentMode + 1) % 5;
+    // 循环切换模式：默认 -> 护眼绿 -> 暖黄 -> 夜间 -> 默认
+    currentMode = (currentMode + 1) % 4;
     applyThemeMode(currentMode);
     
     // 保存用户选择
