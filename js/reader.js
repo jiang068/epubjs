@@ -210,48 +210,32 @@ function applyThemeMode(mode) {
                                 if (rendition.themes.unregister) {
                                     rendition.themes.unregister(themeName);
                                 }
-                            } catch (e) {}
+                            } catch (e) {
+                                // 忽略清除不存在主题的错误
+                            }
                         });
                         
-                        // 移除所有可能的样式覆盖
+                        // 安全地移除样式覆盖
                         if (rendition.themes.override) {
-                            ['color', 'background', 'background-color', 'font-size'].forEach(prop => {
+                            ['color', 'background', 'background-color'].forEach(prop => {
                                 try {
-                                    rendition.themes.override(prop, null);
                                     rendition.themes.override(prop, '');
-                                    rendition.themes.override(prop, 'initial');
-                                } catch (e) {}
+                                } catch (e) {
+                                    // 忽略覆盖不存在属性的错误
+                                }
                             });
                         }
                         
-                        // 强制重新加载默认主题
-                        if (rendition.themes.select) {
-                            rendition.themes.select('');  // 先清空选择
-                            setTimeout(() => {
-                                if (rendition.themes.default && typeof rendition.themes.default === 'function') {
-                                    rendition.themes.default();
-                                } else if (rendition.themes.select) {
-                                    rendition.themes.select('default');
-                                }
-                            }, 50);
+                        // 安全地重置到默认主题
+                        try {
+                            if (rendition.themes.default && typeof rendition.themes.default === 'function') {
+                                rendition.themes.default();
+                            }
+                        } catch (e) {
+                            console.warn("Failed to apply default theme:", e);
                         }
                         
                         console.log("Default theme reset completed");
-                        
-                        // 延迟重新渲染以确保样式完全重置
-                        setTimeout(() => {
-                            if (rendition && rendition.views) {
-                                try {
-                                    // 强制重新渲染当前页面
-                                    const currentLocation = rendition.currentLocation();
-                                    if (currentLocation) {
-                                        rendition.display(currentLocation.start.cfi || currentLocation.start.href);
-                                    }
-                                } catch (e) {
-                                    console.warn("Failed to re-render for default theme:", e);
-                                }
-                            }
-                        }, 100);
                     } catch (e) {
                         console.warn("Failed to reset to default theme:", e);
                     }
@@ -279,23 +263,47 @@ function applyThemeMode(mode) {
                                     // 如果是默认主题，确保完全清除样式；如果不是默认主题，添加新的颜色样式
                                     if (colorThemeIndex === 0) {
                                         // 默认主题：彻底清除所有自定义样式，恢复原始EPUB样式
-                                        // 移除所有可能的主题样式元素
+                                        // 安全地移除所有可能的主题样式元素
                                         ['epub-theme-style', 'epub-color-theme', 'custom-theme-style', 'reader-theme'].forEach(id => {
-                                            const existingStyle = doc.getElementById(id);
-                                            if (existingStyle) {
-                                                existingStyle.remove();
+                                            try {
+                                                const existingStyle = doc.getElementById(id);
+                                                if (existingStyle && existingStyle.parentNode) {
+                                                    existingStyle.parentNode.removeChild(existingStyle);
+                                                }
+                                            } catch (e) {
+                                                // 忽略移除不存在元素的错误
                                             }
                                         });
                                         
-                                        // 移除所有可能的style标签
-                                        const allStyles = doc.querySelectorAll('style[id*="theme"], style[id*="color"], style[id*="mode"]');
-                                        allStyles.forEach(style => style.remove());
-                                        
-                                        // 重置body样式到原始状态
-                                        if (doc.body) {
-                                            ['background', 'background-color', 'color'].forEach(prop => {
-                                                doc.body.style.removeProperty(prop);
+                                        // 安全地移除所有可能的style标签
+                                        try {
+                                            const allStyles = doc.querySelectorAll('style[id*="theme"], style[id*="color"], style[id*="mode"]');
+                                            allStyles.forEach(style => {
+                                                try {
+                                                    if (style.parentNode) {
+                                                        style.parentNode.removeChild(style);
+                                                    }
+                                                } catch (e) {
+                                                    // 忽略移除不存在元素的错误
+                                                }
                                             });
+                                        } catch (e) {
+                                            // 忽略查询不存在元素的错误
+                                        }
+                                        
+                                        // 安全地重置body样式
+                                        try {
+                                            if (doc.body) {
+                                                ['background', 'background-color', 'color'].forEach(prop => {
+                                                    try {
+                                                        doc.body.style.removeProperty(prop);
+                                                    } catch (e) {
+                                                        // 忽略移除不存在属性的错误
+                                                    }
+                                                });
+                                            }
+                                        } catch (e) {
+                                            // 忽略body不存在的错误
                                         }
                                         
                                         console.log("Default theme iframe cleanup completed");
@@ -502,10 +510,13 @@ function renderBook() {
 
     // 添加渲染错误监听
     rendition.on("rendered", () => {
-        // 在每次页面渲染完成后重新应用当前主题模式（确保换章后主题持续）
-        setTimeout(() => {
+        // 防抖处理：避免频繁应用主题
+        if (window.themeApplyTimeout) {
+            clearTimeout(window.themeApplyTimeout);
+        }
+        window.themeApplyTimeout = setTimeout(() => {
             applyThemeMode(currentMode);
-        }, 100);
+        }, 150); // 增加延迟时间
         
         // 在页面渲染完成后尝试更新标题
         setTimeout(() => {
@@ -655,10 +666,13 @@ function renderBookWithLocation(targetLocation) {
     rendition.on("rendered", () => {
         console.log("Page rendered successfully");
         
-        // 在每次页面渲染完成后重新应用当前主题模式（确保换章后主题持续）
-        setTimeout(() => {
+        // 防抖处理：避免频繁应用主题
+        if (window.themeApplyTimeout2) {
+            clearTimeout(window.themeApplyTimeout2);
+        }
+        window.themeApplyTimeout2 = setTimeout(() => {
             applyThemeMode(currentMode);
-        }, 100);
+        }, 150); // 增加延迟时间
         
         // 在页面渲染完成后尝试更新标题
         setTimeout(() => {
@@ -970,6 +984,15 @@ fontDecreaseBtn.onclick = () => {
 // 综合主题模式切换按钮（日间颜色主题 + 夜间模式）
 modeToggleBtn.onclick = () => {
     if (!rendition || !rendition.themes) return;
+    
+    // 防止频繁点击
+    if (window.modeToggleTimeout) {
+        return;
+    }
+    
+    window.modeToggleTimeout = setTimeout(() => {
+        window.modeToggleTimeout = null;
+    }, 300);
     
     // 循环切换模式：默认 -> 护眼绿 -> 暖黄 -> 夜间 -> 默认
     currentMode = (currentMode + 1) % 4;
