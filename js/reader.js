@@ -202,28 +202,56 @@ function applyThemeMode(mode) {
             const theme = textColorThemes[colorThemeIndex];
             if (theme) {
                 if (colorThemeIndex === 0) {
-                    // 默认主题：重置到EPUB原始样式
+                    // 默认主题：彻底重置到EPUB原始样式
                     try {
-                        // 移除所有自定义主题样式覆盖
-                        if (rendition.themes.override) {
-                            rendition.themes.override('color', null);
-                            rendition.themes.override('background', null);
-                            rendition.themes.override('background-color', null);
-                        }
-                        // 尝试清除已注册的自定义主题
-                        ['colorTheme1', 'colorTheme2', 'colorTheme3'].forEach(themeName => {
+                        // 首先尝试清除所有已注册的自定义主题
+                        ['colorTheme1', 'colorTheme2', 'colorTheme3', 'darkMode', 'fontSizeAdjust'].forEach(themeName => {
                             try {
                                 if (rendition.themes.unregister) {
                                     rendition.themes.unregister(themeName);
                                 }
                             } catch (e) {}
                         });
-                        // 重置到默认主题
-                        if (rendition.themes.default && typeof rendition.themes.default === 'function') {
-                            rendition.themes.default();
-                        } else if (rendition.themes.select) {
-                            rendition.themes.select('default');
+                        
+                        // 移除所有可能的样式覆盖
+                        if (rendition.themes.override) {
+                            ['color', 'background', 'background-color', 'font-size'].forEach(prop => {
+                                try {
+                                    rendition.themes.override(prop, null);
+                                    rendition.themes.override(prop, '');
+                                    rendition.themes.override(prop, 'initial');
+                                } catch (e) {}
+                            });
                         }
+                        
+                        // 强制重新加载默认主题
+                        if (rendition.themes.select) {
+                            rendition.themes.select('');  // 先清空选择
+                            setTimeout(() => {
+                                if (rendition.themes.default && typeof rendition.themes.default === 'function') {
+                                    rendition.themes.default();
+                                } else if (rendition.themes.select) {
+                                    rendition.themes.select('default');
+                                }
+                            }, 50);
+                        }
+                        
+                        console.log("Default theme reset completed");
+                        
+                        // 延迟重新渲染以确保样式完全重置
+                        setTimeout(() => {
+                            if (rendition && rendition.views) {
+                                try {
+                                    // 强制重新渲染当前页面
+                                    const currentLocation = rendition.currentLocation();
+                                    if (currentLocation) {
+                                        rendition.display(currentLocation.start.cfi || currentLocation.start.href);
+                                    }
+                                } catch (e) {
+                                    console.warn("Failed to re-render for default theme:", e);
+                                }
+                            }
+                        }, 100);
                     } catch (e) {
                         console.warn("Failed to reset to default theme:", e);
                     }
@@ -250,15 +278,27 @@ function applyThemeMode(mode) {
                                     
                                     // 如果是默认主题，确保完全清除样式；如果不是默认主题，添加新的颜色样式
                                     if (colorThemeIndex === 0) {
-                                        // 默认主题：确保完全清除所有自定义样式，恢复原始EPUB样式
+                                        // 默认主题：彻底清除所有自定义样式，恢复原始EPUB样式
                                         // 移除所有可能的主题样式元素
-                                        ['epub-theme-style', 'epub-color-theme', 'custom-theme-style'].forEach(id => {
+                                        ['epub-theme-style', 'epub-color-theme', 'custom-theme-style', 'reader-theme'].forEach(id => {
                                             const existingStyle = doc.getElementById(id);
                                             if (existingStyle) {
                                                 existingStyle.remove();
                                             }
                                         });
-                                        // 不添加任何新样式，让EPUB使用原本的颜色
+                                        
+                                        // 移除所有可能的style标签
+                                        const allStyles = doc.querySelectorAll('style[id*="theme"], style[id*="color"], style[id*="mode"]');
+                                        allStyles.forEach(style => style.remove());
+                                        
+                                        // 重置body样式到原始状态
+                                        if (doc.body) {
+                                            ['background', 'background-color', 'color'].forEach(prop => {
+                                                doc.body.style.removeProperty(prop);
+                                            });
+                                        }
+                                        
+                                        console.log("Default theme iframe cleanup completed");
                                     } else {
                                         // 非默认主题：添加新的颜色样式
                                         const colorStyle = doc.createElement('style');

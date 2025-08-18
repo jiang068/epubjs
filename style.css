@@ -147,12 +147,15 @@ body.double-page #viewport {
     padding: 0.2em 0.3em;
     gap: 5px;
     flex-wrap: nowrap; /* 手机端不换行，强制水平排列 */
+    justify-content: space-between; /* 保持标题左对齐，按钮右对齐 */
 }
 
 #title {
     font-size: 0.9em; /* 减小字体 */
     max-width: calc(100vw - 320px); /* 为按钮预留更多空间 */
     min-width: 80px; /* 最小宽度确保可读性 */
+    flex: 1; /* 占用剩余空间 */
+    margin-right: 10px; /* 与按钮组的间距 */
 }
 
 button {
