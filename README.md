@@ -50,7 +50,7 @@ npm run build
 https://<GitHub用户名>.github.io/<仓库名>/
 ```
 
-GitHub Pages 只发布静态 `dist/`，不会运行 `functions/`，因此 `/api/proxy` 在 GitHub Pages 上不可用。
+GitHub Pages 和 Cloudflare Pages 现在都按纯静态 SPA 发布，不运行后端函数。路由回退由 `public/_redirects` 提供。
 
 ### Cloudflare Pages Git 直连
 
@@ -64,20 +64,11 @@ GitHub Pages 只发布静态 `dist/`，不会运行 `functions/`，因此 `/api/
 | Build output directory | `dist` |
 | Root directory | 留空 |
 
-仓库根目录的 `.node-version` 会让 GitHub Actions 和 Cloudflare Pages 都使用 Node.js 24。保存后，推送 `main` 会发布生产版本，其他分支和 Pull Request 会生成独立预览地址。项目不提交绑定特定项目名的 `wrangler.toml`，避免它覆盖 Cloudflare 控制台中实际的 Pages 项目配置；Pages Functions 会从 `functions/` 自动识别。
-
-如果需要使用仓库内的受限远程文件代理，在 Cloudflare Pages 项目的变量设置中添加：
-
-```text
-READER_PROXY_ALLOWLIST=files.example.com,openlist.example.com
-```
-
-只填写你信任的文件源域名，不要把代理配置成允许任意主机。
+仓库根目录的 `.node-version` 会让 GitHub Actions 和 Cloudflare Pages 都使用 Node.js 24。保存后，推送 `main` 会发布生产版本，其他分支和 Pull Request 会生成独立预览地址。项目不依赖 `wrangler.toml`、Pages Functions 或服务端变量。
 
 ## 项目结构
 
 ```text
-functions/       Cloudflare Pages Functions（可选代理）
 public/          PWA、嵌入脚本与静态托管配置
 src/core/        路由、存储、文件源与阅读偏好
 src/engines/     EPUB、PDF、图片漫画与 TXT 引擎
@@ -117,13 +108,7 @@ OpenList / Alist 的 Iframe 预览可以配置：
 
 HTTP 文件不能被 HTTPS 页面直接读取。需要将文件源升级为 HTTPS、启用 OpenList 代理，或另行提供受限的 Cloudflare Worker 代理；不要部署无限制的公共代理。
 
-本仓库附带可选的 Cloudflare Pages Function：`functions/api/proxy.ts`。部署 Pages 时设置环境变量 `READER_PROXY_ALLOWLIST`，值为允许访问的域名列表（逗号分隔），然后将阅读地址改成：
-
-```text
-https://your-reader.example/api/proxy?url=$e_url
-```
-
-GitHub Pages 不运行 Functions；纯静态部署仍然只支持 HTTPS+CORS 文件。
+纯静态部署不提供服务端代理，因此远程文件必须使用 HTTPS，并且文件源服务器需要允许浏览器跨域读取（CORS）。HTTP 文件在 HTTPS 页面中会被浏览器的混合内容策略拦截；没有后端时无法绕过这一限制。
 
 ## 依赖版本
 

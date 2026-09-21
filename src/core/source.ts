@@ -119,12 +119,6 @@ export function recordFromUrl(url: string, name?: string): BookRecord {
   const resolvedName = name || decodeURIComponent(original.pathname.split("/").pop() || "远程文件");
   let fingerprint = 2166136261;
   for (let index = 0; index < original.href.length; index += 1) fingerprint = Math.imul(fingerprint ^ original.href.charCodeAt(index), 16777619);
-  let readableUrl = original.toString();
-  if (original.protocol === "http:" && location.protocol === "https:") {
-    const proxy = new URL("./api/proxy", document.baseURI);
-    proxy.searchParams.set("url", original.toString());
-    readableUrl = proxy.toString();
-  }
   return {
     id: `remote:${(fingerprint >>> 0).toString(36)}`,
     name: resolvedName,
@@ -132,7 +126,7 @@ export function recordFromUrl(url: string, name?: string): BookRecord {
     size: 0,
     addedAt: Date.now(),
     updatedAt: Date.now(),
-    url: readableUrl,
+    url: original.toString(),
     progress: 0
   };
 }
