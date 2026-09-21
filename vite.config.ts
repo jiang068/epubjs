@@ -5,7 +5,14 @@ import { defineConfig } from "vite";
 
 const projectRoot = resolve(dirname(fileURLToPath(import.meta.url)));
 const workspaceRoot = resolve(projectRoot, "..");
-const outputRoot = existsSync(resolve(workspaceRoot, "package-lock.json")) ? resolve(workspaceRoot, "dist") : resolve(projectRoot, "dist");
+// Cloudflare Pages injects CF_PAGES=1. Always write into the checked-out
+// repository there; the parent directory belongs to the build runner and is
+// not the configured upload directory. The outer dist path is only for the
+// local workspace shell used by this project.
+const isCloudflarePages = process.env.CF_PAGES === "1";
+const outputRoot = !isCloudflarePages && existsSync(resolve(workspaceRoot, "package-lock.json"))
+  ? resolve(workspaceRoot, "dist")
+  : resolve(projectRoot, "dist");
 
 export default defineConfig({
   root: projectRoot,

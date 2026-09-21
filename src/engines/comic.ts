@@ -153,15 +153,19 @@ export class ComicEngine implements ReaderEngine {
     spread.className = `comic-spread comic-spread-${this.spread}`;
     spread.style.setProperty("--comic-zoom", String(this.zoom / 100));
     spread.classList.toggle("comic-direction-reverse", this.direction === "reverse");
+    // Attach the spread before loading. loadImage intentionally ignores
+    // detached/stale nodes; appending only after awaiting meant every
+    // paginated image failed the `isConnected` guard and never received src.
+    surface.append(spread);
     const count = this.spread === "double" ? 2 : 1;
     const logicalIndex = this.logicalIndexForSource(this.index);
     for (let offset = 0; offset < count && logicalIndex + offset < this.pages.length; offset += 1) {
+      if (token !== this.renderToken) return;
       const pageIndex = this.sourceIndexForLogical(logicalIndex + offset);
       const image = this.createImage(pageIndex);
       spread.append(image);
       await this.loadImage(pageIndex, image, token);
     }
-    surface.append(spread);
   }
 
   private renderScrolled(surface: HTMLElement): void {
@@ -266,6 +270,7 @@ export class ComicEngine implements ReaderEngine {
     this.direction = direction;
     this.directionInitialized = true;
     if (firstApply && direction === "reverse" && this.pages.length) this.index = this.pages.length - 1;
+    if (firstApply && direction === "forward") return;
     if (this.host) void this.render();
   }
 
@@ -277,12 +282,16 @@ export class ComicEngine implements ReaderEngine {
   }
 
   setImageFit(fit: ImageFit): void {
-    this.fit = fit === "width" ? "width" : "contain";
+    const nextFit = fit === "width" ? "width" : "contain";
+    if (nextFit === this.fit) return;
+    this.fit = nextFit;
     void this.render();
   }
 
   setZoom(percent: number): void {
-    this.zoom = Math.max(30, Math.min(100, Math.round(percent / 5) * 5));
+    const nextZoom = Math.max(30, Math.min(100, Math.round(percent / 5) * 5));
+    if (nextZoom === this.zoom) return;
+    this.zoom = nextZoom;
     if (this.host) void this.render();
   }
 

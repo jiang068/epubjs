@@ -64,7 +64,7 @@ GitHub Pages 只发布静态 `dist/`，不会运行 `functions/`，因此 `/api/
 | Build output directory | `dist` |
 | Root directory | 留空 |
 
-仓库根目录的 `.node-version` 会让 GitHub Actions 和 Cloudflare Pages 都使用 Node.js 24。保存后，推送 `main` 会发布生产版本，其他分支和 Pull Request 会生成独立预览地址。
+仓库根目录的 `.node-version` 会让 GitHub Actions 和 Cloudflare Pages 都使用 Node.js 24。保存后，推送 `main` 会发布生产版本，其他分支和 Pull Request 会生成独立预览地址。项目不提交绑定特定项目名的 `wrangler.toml`，避免它覆盖 Cloudflare 控制台中实际的 Pages 项目配置；Pages Functions 会从 `functions/` 自动识别。
 
 如果需要使用仓库内的受限远程文件代理，在 Cloudflare Pages 项目的变量设置中添加：
 
