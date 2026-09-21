@@ -1,6 +1,8 @@
 import type { BookFormat, BookRecord, BookSource, StoredImage } from "../types";
 
 const IMAGE_EXTENSIONS = new Set(["jpg", "jpeg", "png", "webp", "gif", "avif", "bmp"]);
+const MAX_REMOTE_BYTES = 512 * 1024 * 1024;
+const REMOTE_TIMEOUT_MS = 45_000;
 
 export function extensionOf(name: string): string {
   const clean = name.split(/[?#]/, 1)[0];
@@ -42,9 +44,37 @@ export async function materializeBlob(source: BookSource): Promise<Blob> {
     if (!source.record.blob) throw new Error("本地书籍内容已被清理，请重新选择文件");
     return source.record.blob;
   }
-  const response = await fetch(source.url, { mode: "cors", credentials: "omit", cache: "no-store" });
-  if (!response.ok) throw new Error(`远程文件请求失败（HTTP ${response.status}）`);
-  return response.blob();
+  const controller = new AbortController();
+  const timer = window.setTimeout(() => controller.abort(), REMOTE_TIMEOUT_MS);
+  try {
+    const response = await fetch(source.url, { mode: "cors", credentials: "omit", cache: "no-store", signal: controller.signal });
+    if (!response.ok) throw new Error(`远程文件请求失败（HTTP ${response.status}）`);
+    const declaredLength = Number(response.headers.get("content-length"));
+    if (Number.isFinite(declaredLength) && declaredLength > MAX_REMOTE_BYTES) throw new Error("远程文件超过 512 MB 安全上限");
+    if (!response.body) return response.blob();
+    const reader = response.body.getReader();
+    const chunks: Uint8Array[] = [];
+    let total = 0;
+    while (true) {
+      const result = await reader.read();
+      if (result.done) break;
+      total += result.value.byteLength;
+      if (total > MAX_REMOTE_BYTES) {
+        await reader.cancel();
+        throw new Error("远程文件超过 512 MB 安全上限");
+      }
+      chunks.push(result.value);
+    }
+    // Copy each view into a regular ArrayBuffer so Blob construction remains
+    // compatible with browsers whose Uint8Array buffer is ArrayBufferLike.
+    const parts = chunks.map((chunk) => chunk.slice().buffer as ArrayBuffer);
+    return new Blob(parts, { type: response.headers.get("content-type") || "application/octet-stream" });
+  } catch (error) {
+    if ((error as { name?: string })?.name === "AbortError") throw new Error("远程文件请求超时");
+    throw error;
+  } finally {
+    window.clearTimeout(timer);
+  }
 }
 
 export async function materializeText(source: BookSource): Promise<string> {

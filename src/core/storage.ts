@@ -13,7 +13,7 @@ interface NekoSchema extends DBSchema {
   books: {
     key: string;
     value: BookRecord;
-    indexes: { "by-updated": number };
+    indexes: { "by-updated": number; "by-cached": number };
   };
   contents: {
     key: string;
@@ -91,12 +91,15 @@ async function migrateLegacyBookBodies(opened: IDBPDatabase<NekoSchema>): Promis
 
 function db(): Promise<IDBPDatabase<NekoSchema>> {
   database ??= openDB<NekoSchema>("neko-reader", 2, {
-    upgrade(upgradeDb, oldVersion) {
+    upgrade(upgradeDb, oldVersion, _newVersion, upgradeTransaction) {
       if (oldVersion < 1) {
         const store = upgradeDb.createObjectStore("books", { keyPath: "id" });
         store.createIndex("by-updated", "updatedAt");
+        store.createIndex("by-cached", "cachedAt");
       }
       if (oldVersion < 2) {
+        const books = upgradeTransaction.objectStore("books");
+        if (books && !books.indexNames.contains("by-cached")) books.createIndex("by-cached", "cachedAt");
         const contents = upgradeDb.createObjectStore("contents", { keyPath: "id" });
         contents.createIndex("by-cached", "cachedAt");
       }
@@ -114,14 +117,15 @@ async function pruneBookCache(opened: IDBPDatabase<NekoSchema>, limit: number): 
   const books = transaction.objectStore("books");
   const contents = transaction.objectStore("contents");
   let remaining = await contents.count();
-  let cursor = await contents.index("by-cached").openCursor();
+  let cursor = await books.index("by-cached").openCursor();
   while (cursor && remaining > limit) {
     const id = cursor.value.id;
-    await cursor.delete();
-    const book = await books.get(id);
-    if (book) await books.put({ ...book, offlineStored: false, cachedAt: undefined });
-    sessionContent.delete(id);
-    remaining -= 1;
+    if (cursor.value.offlineStored) {
+      await contents.delete(id);
+      await cursor.update({ ...cursor.value, offlineStored: false, cachedAt: undefined });
+      sessionContent.delete(id);
+      remaining -= 1;
+    }
     cursor = await cursor.continue();
   }
   await transaction.done;
@@ -145,7 +149,6 @@ export async function getBook(id: string): Promise<BookRecord | undefined> {
   }
   const now = Date.now();
   const transaction = opened.transaction(["books", "contents"], "readwrite");
-  await transaction.objectStore("contents").put({ ...content, cachedAt: now });
   await transaction.objectStore("books").put({ ...book, cachedAt: now });
   await transaction.done;
   return { ...book, blob: content.blob, images: content.images, cachedAt: now };
@@ -230,9 +233,10 @@ export async function clearBookCache(): Promise<void> {
 }
 
 export async function updateProgress(id: string, locator: Locator, progress: number): Promise<void> {
-  const book = await getBook(id);
+  const opened = await db();
+  const book = await opened.get("books", id);
   if (!book) return;
-  await saveBook({ ...book, locator, progress, updatedAt: Date.now() });
+  await opened.put("books", { ...book, locator, progress, updatedAt: Date.now() });
 }
 
 export async function deleteBook(id: string): Promise<void> {

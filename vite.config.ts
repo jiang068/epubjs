@@ -15,7 +15,9 @@ export default defineConfig({
   build: {
     outDir: outputRoot,
     emptyOutDir: true,
-    sourcemap: true,
+    // Source maps stay opt-in for release builds: they add several MB and
+    // expose the full source tree from a public static host.
+    sourcemap: process.env.VITE_SOURCEMAP === "true",
     target: "es2022"
   },
   server: {

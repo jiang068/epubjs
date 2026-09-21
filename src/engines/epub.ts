@@ -360,7 +360,9 @@ export class EpubEngine implements ReaderEngine {
     const resolved = typeof section.output === "string" ? section.output : output;
     section.output = resolved
       .replace(/<script\b[^>]*>[\s\S]*?<\/script\s*>/gi, "")
-      .replace(/<script\b[^>]*\/\s*>/gi, "");
+      .replace(/<script\b[^>]*\/\s*>/gi, "")
+      .replace(/\s+on[a-z]+\s*=\s*(?:"[^"]*"|'[^']*'|[^\s>]+)/gi, "")
+      .replace(/\s+(?:href|src|xlink:href)\s*=\s*(?:"\s*javascript:[^"]*"|'\s*javascript:[^']*'|\s*javascript:[^\s>]+)/gi, "");
   };
 
   private applyAllDocuments(): void {
@@ -402,6 +404,16 @@ export class EpubEngine implements ReaderEngine {
 
   private enhanceDocument(doc?: Document): void {
     if (!doc?.head || !doc.body) return;
+    // EPUB XHTML is untrusted input. EPUB.js renders it in a sandbox, but
+    // remove inline handlers and javascript: URLs as a second defensive line
+    // before applying reader-specific behavior.
+    doc.querySelectorAll("*").forEach((element) => {
+      [...element.attributes].forEach((attribute) => {
+        if (/^on/i.test(attribute.name) || ((attribute.name === "href" || attribute.name === "src" || attribute.name === "xlink:href") && /^\s*javascript:/i.test(attribute.value))) {
+          element.removeAttribute(attribute.name);
+        }
+      });
+    });
     this.paintDocumentBackground(doc);
     if (doc.body.dataset.nekoInteractionBound !== "1") {
       doc.body.dataset.nekoInteractionBound = "1";

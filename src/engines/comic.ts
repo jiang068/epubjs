@@ -2,7 +2,8 @@ import { BlobReader, BlobWriter, ZipReader } from "@zip.js/zip.js";
 import { isImageFile, materializeBlob, sortNaturally } from "../core/source";
 import type { BookMetadata, BookSource, ImageFit, Locator, ReaderEngine, ReaderFlow, ReaderHost, ReaderSpread, ReaderTheme, StoredImage } from "../types";
 
-interface ComicPage { name: string; blob: Blob }
+interface ComicEntry { getData?: (writer: BlobWriter) => Promise<Blob> }
+interface ComicPage { name: string; blob?: Blob; entry?: ComicEntry }
 
 function isImageName(name: string): boolean {
   return /\.(jpe?g|png|webp|gif|avif|bmp)$/i.test(name);
@@ -13,7 +14,11 @@ export class ComicEngine implements ReaderEngine {
   private pages: ComicPage[] = [];
   private index = 0;
   private host?: ReaderHost;
-  private objectUrls: string[] = [];
+  private objectUrls = new Map<number, string>();
+  private loadingImages = new Map<number, Promise<string>>();
+  private zip?: { close(): Promise<void> };
+  private imageObserver?: IntersectionObserver;
+  private renderToken = 0;
   private fit: "contain" | "width" = "contain";
   private zoom = 90;
   private flow: ReaderFlow = "paginated";
@@ -23,6 +28,8 @@ export class ComicEngine implements ReaderEngine {
   async open(source: BookSource, host: ReaderHost): Promise<BookMetadata> {
     this.host = host;
     this.revokeObjectUrls();
+    await this.zip?.close().catch(() => undefined);
+    this.zip = undefined;
     this.pages = [];
     if (source.kind === "stored" && source.record.images?.length) {
       this.pages = sortNaturally(source.record.images).map((image: StoredImage) => ({ name: image.name, blob: image.blob }));
@@ -35,11 +42,11 @@ export class ComicEngine implements ReaderEngine {
         const zip = new ZipReader(new BlobReader(blob));
         const entries = await zip.getEntries();
         for (const entry of entries) {
-          if (!entry.directory && isImageName(entry.filename) && entry.getData) {
-            this.pages.push({ name: entry.filename, blob: await entry.getData(new BlobWriter()) });
+          if (!entry.directory && isImageName(entry.filename)) {
+            this.pages.push({ name: entry.filename, entry });
           }
         }
-        await zip.close();
+        this.zip = zip;
         this.pages = sortNaturally(this.pages);
       }
     }
@@ -47,25 +54,41 @@ export class ComicEngine implements ReaderEngine {
     this.index = 0;
     const metadata = { title: source.kind === "url" ? source.name || "远程漫画" : source.kind === "stored" ? source.record.name : source.file.name, format: this.format, total: this.pages.length };
     host.onMetadata(metadata);
-    this.render();
+    await this.render();
     return metadata;
   }
 
-  private ensureObjectUrls(): void {
-    if (this.objectUrls.length === this.pages.length) return;
-    this.revokeObjectUrls();
-    this.objectUrls = this.pages.map((page) => URL.createObjectURL(page.blob));
+  private async getObjectUrl(index: number): Promise<string> {
+    const existing = this.objectUrls.get(index);
+    if (existing) return existing;
+    const pending = this.loadingImages.get(index);
+    if (pending) return pending;
+    const page = this.pages[index];
+    if (!page) throw new Error("图片页不存在");
+    const task = (async () => {
+      const blob = page.blob || await page.entry?.getData?.(new BlobWriter());
+      if (!blob) throw new Error(`无法读取图片：${page.name}`);
+      page.blob = blob;
+      const url = URL.createObjectURL(blob);
+      this.objectUrls.set(index, url);
+      return url;
+    })();
+    this.loadingImages.set(index, task);
+    try { return await task; } finally { this.loadingImages.delete(index); }
   }
 
   private revokeObjectUrls(): void {
     this.objectUrls.forEach((url) => URL.revokeObjectURL(url));
-    this.objectUrls = [];
+    this.objectUrls.clear();
+    this.loadingImages.clear();
   }
 
   private clearSurface(): HTMLElement | undefined {
     const surface = this.host?.surface;
     if (!surface) return undefined;
     surface.removeEventListener("scroll", this.scrollHandler);
+    this.imageObserver?.disconnect();
+    this.imageObserver = undefined;
     surface.classList.remove("comic-flow-scrolled");
     surface.style.overflow = "hidden";
     surface.replaceChildren();
@@ -76,13 +99,23 @@ export class ComicEngine implements ReaderEngine {
     const image = document.createElement("img");
     image.className = `comic-page comic-fit-${this.fit}`;
     image.alt = this.pages[index]?.name || `第 ${index + 1} 页`;
-    image.src = this.objectUrls[index];
     image.dataset.pageIndex = String(index);
     image.addEventListener("click", (event) => {
       event.stopPropagation();
-      this.host?.onImage?.({ src: image.src, name: this.pages[index]?.name });
+      if (image.currentSrc || image.src) this.host?.onImage?.({ src: image.currentSrc || image.src, name: this.pages[index]?.name });
     });
     return image;
+  }
+
+  private async loadImage(index: number, image: HTMLImageElement, token: number): Promise<void> {
+    try {
+      const url = await this.getObjectUrl(index);
+      if (token !== this.renderToken || !image.isConnected) return;
+      image.src = url;
+      image.addEventListener("load", () => this.updateScrolledLocation(), { once: true });
+    } catch (error) {
+      if (token === this.renderToken) this.host?.onError(error);
+    }
   }
 
   private emitLocation(): void {
@@ -92,21 +125,26 @@ export class ComicEngine implements ReaderEngine {
     this.host.onLocation({ kind: this.format, page: this.index + 1, total: this.pages.length, percent: progress, atStart: this.index === 0, atEnd: this.index >= this.pages.length - step }, progress);
   }
 
-  private render(): void {
+  private async render(): Promise<void> {
+    const token = ++this.renderToken;
     const surface = this.clearSurface();
     if (!surface || !this.pages.length) return;
-    this.ensureObjectUrls();
     if (this.flow === "scrolled") this.renderScrolled(surface);
-    else this.renderPaginated(surface);
+    else await this.renderPaginated(surface, token);
     this.emitLocation();
   }
 
-  private renderPaginated(surface: HTMLElement): void {
+  private async renderPaginated(surface: HTMLElement, token: number): Promise<void> {
     const spread = document.createElement("div");
     spread.className = `comic-spread comic-spread-${this.spread}`;
     spread.style.setProperty("--comic-zoom", String(this.zoom / 100));
     const count = this.spread === "double" ? 2 : 1;
-    for (let offset = 0; offset < count && this.index + offset < this.pages.length; offset += 1) spread.append(this.createImage(this.index + offset));
+    for (let offset = 0; offset < count && this.index + offset < this.pages.length; offset += 1) {
+      const pageIndex = this.index + offset;
+      const image = this.createImage(pageIndex);
+      spread.append(image);
+      await this.loadImage(pageIndex, image, token);
+    }
     surface.append(spread);
   }
 
@@ -117,8 +155,26 @@ export class ComicEngine implements ReaderEngine {
     const list = document.createElement("div");
     list.className = "comic-scroll-list";
     list.style.setProperty("--comic-scroll-width", `${this.zoom}%`);
-    this.pages.forEach((_page, pageIndex) => list.append(this.createImage(pageIndex)));
+    const token = this.renderToken;
+    this.pages.forEach((_page, pageIndex) => {
+      const image = this.createImage(pageIndex);
+      // Keep unloaded ZIP entries from collapsing to zero height. A modest
+      // placeholder lets IntersectionObserver load only the nearby pages
+      // instead of considering every image to be visible at the top.
+      image.style.minHeight = "240px";
+      list.append(image);
+    });
     surface.append(list);
+    this.imageObserver = new IntersectionObserver((entries) => {
+      for (const entry of entries) {
+        if (!entry.isIntersecting) continue;
+        const image = entry.target as HTMLImageElement;
+        const pageIndex = Number(image.dataset.pageIndex);
+        void this.loadImage(pageIndex, image, token);
+        this.imageObserver?.unobserve(image);
+      }
+    }, { root: surface, rootMargin: "1200px 0px" });
+    list.querySelectorAll<HTMLImageElement>("img[data-page-index]").forEach((image) => this.imageObserver?.observe(image));
     surface.addEventListener("scroll", this.scrollHandler, { passive: true });
     window.requestAnimationFrame(() => this.scrollToIndex(this.index, "auto"));
   }
@@ -154,7 +210,7 @@ export class ComicEngine implements ReaderEngine {
     if (target === this.index) return;
     this.index = target;
     if (this.flow === "scrolled") this.scrollToIndex(this.index);
-    else this.render();
+    else await this.render();
     if (this.flow === "scrolled") this.emitLocation();
   }
 
@@ -164,14 +220,14 @@ export class ComicEngine implements ReaderEngine {
     if (target === this.index) return;
     this.index = target;
     if (this.flow === "scrolled") this.scrollToIndex(this.index);
-    else this.render();
+    else await this.render();
     if (this.flow === "scrolled") this.emitLocation();
   }
 
   async goTo(locator: Locator): Promise<void> {
     this.index = Math.max(0, Math.min(this.pages.length - 1, (locator.page || 1) - 1));
     if (this.flow === "scrolled") this.scrollToIndex(this.index, "auto");
-    else this.render();
+    else await this.render();
     if (this.flow === "scrolled") this.emitLocation();
   }
 
@@ -181,33 +237,36 @@ export class ComicEngine implements ReaderEngine {
   setFlow(flow: ReaderFlow): void {
     if (flow === this.flow) return;
     this.flow = flow;
-    this.render();
+    void this.render();
   }
 
   setSpread(spread: ReaderSpread): void {
     if (spread === this.spread) return;
     this.spread = spread;
-    if (this.flow === "paginated") this.render();
+    if (this.flow === "paginated") void this.render();
     else this.emitLocation();
   }
 
   setImageFit(fit: ImageFit): void {
     this.fit = fit === "width" ? "width" : "contain";
-    this.render();
+    void this.render();
   }
 
   setZoom(percent: number): void {
     this.zoom = Math.max(30, Math.min(100, Math.round(percent / 5) * 5));
-    if (this.host) this.render();
+    if (this.host) void this.render();
   }
 
   toggleFit(): void {
     this.fit = this.fit === "contain" ? "width" : "contain";
-    this.render();
+    void this.render();
   }
 
   destroy(): void {
     if (this.host) this.host.surface.removeEventListener("scroll", this.scrollHandler);
+    this.imageObserver?.disconnect();
+    void this.zip?.close().catch(() => undefined);
+    this.zip = undefined;
     this.revokeObjectUrls();
     this.host?.surface.replaceChildren();
     this.host = undefined;

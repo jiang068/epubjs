@@ -35,6 +35,8 @@ export class PdfEngine implements ReaderEngine {
   private reportedPage = 0;
   private suppressScrollUntil = 0;
   private scrollAnchor?: { page: number; offset: number };
+  private scrolledList?: HTMLElement;
+  private scrolledRenderQueue: Promise<void> = Promise.resolve();
 
   private resizeHandler = () => {
     window.clearTimeout(this.resizeTimer);
@@ -48,6 +50,7 @@ export class PdfEngine implements ReaderEngine {
     this.scrollRaf = window.requestAnimationFrame(() => {
       this.scrollRaf = undefined;
       this.updateScrollLocation();
+      void this.renderVisibleScrolled(this.renderId);
     });
   };
 
@@ -145,16 +148,21 @@ export class PdfEngine implements ReaderEngine {
   private async renderScrolled(host: ReaderHost, doc: PdfDocument, renderId: number): Promise<void> {
     const list = document.createElement("div");
     list.className = "pdf-scroll-list";
-    // Build the new zoom level off-DOM. The currently visible pages stay in
-    // place until every replacement canvas is ready, so the reader never
-    // flashes page 1 while zooming or resizing.
+    // Keep only lightweight placeholders in the DOM. Rendering every page of
+    // a long PDF up front makes scrolling janky and can exhaust the canvas
+    // memory budget. Visible pages (plus a small buffer) are painted below.
+    let estimatedHeight = 900;
+    try {
+      const first = await doc.getPage(1);
+      estimatedHeight = Math.max(240, Math.round(this.calculateScale(first).viewport.height));
+      first.cleanup?.();
+    } catch { /* The first real render will surface a useful error. */ }
     for (let pageNumber = 1; pageNumber <= doc.numPages; pageNumber += 1) {
-      const canvas = await this.renderPage(pageNumber, renderId);
-      if (!canvas || renderId !== this.renderId || this.doc !== doc || !this.host) return;
       const item = document.createElement("section");
       item.className = "pdf-scroll-page";
       item.dataset.page = String(pageNumber);
-      item.append(canvas);
+      item.style.minHeight = `${estimatedHeight}px`;
+      item.setAttribute("aria-label", `第 ${pageNumber} 页`);
       list.append(item);
     }
     if (renderId !== this.renderId || this.doc !== doc || !this.host) return;
@@ -168,6 +176,7 @@ export class PdfEngine implements ReaderEngine {
     // Swap and restore synchronously in the same task, before the browser can
     // paint the detached list at scrollTop 0.
     host.surface.replaceChildren(list);
+    this.scrolledList = list;
     this.reportedPage = 0;
     const target = list.querySelector<HTMLElement>(`.pdf-scroll-page[data-page="${targetPage}"]`);
     if (target) {
@@ -178,6 +187,37 @@ export class PdfEngine implements ReaderEngine {
     this.scrollAnchor = undefined;
     this.page = targetPage;
     this.reportLocation(targetPage);
+    await this.renderVisibleScrolled(renderId);
+  }
+
+  private async renderVisibleScrolled(renderId: number): Promise<void> {
+    const surface = this.host?.surface;
+    const list = this.scrolledList;
+    const doc = this.doc;
+    if (!surface || !list || !doc || this.flow !== "scrolled") return;
+    const surfaceRect = surface.getBoundingClientRect();
+    const items = [...list.querySelectorAll<HTMLElement>(".pdf-scroll-page")];
+    const visible = items.filter((item) => {
+      const rect = item.getBoundingClientRect();
+      return rect.bottom >= surfaceRect.top - surface.clientHeight * 1.5
+        && rect.top <= surfaceRect.bottom + surface.clientHeight * 1.5;
+    });
+    this.scrolledRenderQueue = this.scrolledRenderQueue.then(async () => {
+      for (const item of visible) {
+        if (renderId !== this.renderId || this.doc !== doc || this.flow !== "scrolled") return;
+        if (item.dataset.rendered === "true") continue;
+        const pageNumber = Number(item.dataset.page);
+        if (!Number.isFinite(pageNumber)) continue;
+        const canvas = await this.renderPage(pageNumber, renderId);
+        if (!canvas || renderId !== this.renderId || this.doc !== doc) return;
+        item.replaceChildren(canvas);
+        item.dataset.rendered = "true";
+        item.style.minHeight = "";
+      }
+    }).catch((error) => {
+      if ((error as { name?: string })?.name !== "RenderingCancelledException") this.host?.onError(error);
+    });
+    await this.scrolledRenderQueue;
   }
 
   private updateScrollLocation(): void {
@@ -306,6 +346,8 @@ export class PdfEngine implements ReaderEngine {
     this.host?.surface.removeEventListener("scroll", this.scrollHandler);
     this.host?.surface.classList.remove("pdf-surface", "pdf-scrolled");
     this.host?.surface.replaceChildren();
+    this.scrolledList = undefined;
+    this.scrolledRenderQueue = Promise.resolve();
     this.host = undefined;
     void this.doc?.destroy?.();
     this.doc = undefined;

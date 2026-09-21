@@ -36,6 +36,8 @@ export class ReaderView {
   private latestLocator?: Locator;
   private restoring = true;
   private destroyed = false;
+  private pendingProgress?: { locator: Locator; progress: number };
+  private progressTimer?: number;
   private keyHandler = (event: KeyboardEvent) => {
     if (event.key === "ArrowRight" || event.key === "PageDown") { event.preventDefault(); void this.engine?.next(); }
     if (event.key === "ArrowLeft" || event.key === "PageUp") { event.preventDefault(); void this.engine?.prev(); }
@@ -313,7 +315,14 @@ export class ReaderView {
     this.book.locator = locator;
     if (typeof progress === "number" && Number.isFinite(progress)) this.book.progress = progress;
     replaceReaderLocation(this.book.id, locator);
-    void updateProgress(this.book.id, locator, this.book.progress || 0);
+    this.pendingProgress = { locator: { ...locator }, progress: this.book.progress || 0 };
+    window.clearTimeout(this.progressTimer);
+    this.progressTimer = window.setTimeout(() => {
+      this.progressTimer = undefined;
+      const pending = this.pendingProgress;
+      this.pendingProgress = undefined;
+      if (pending) void updateProgress(this.book.id, pending.locator, pending.progress);
+    }, 650);
   }
 
   private showError(error: unknown): void {
@@ -344,6 +353,11 @@ export class ReaderView {
 
   destroy(): void {
     this.destroyed = true;
+    window.clearTimeout(this.progressTimer);
+    this.progressTimer = undefined;
+    const pending = this.pendingProgress;
+    this.pendingProgress = undefined;
+    if (pending) void updateProgress(this.book.id, pending.locator, pending.progress);
     this.closeImagePreview();
     window.removeEventListener("keydown", this.keyHandler);
     this.engine?.destroy();

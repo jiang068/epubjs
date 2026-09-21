@@ -1,6 +1,6 @@
 // Bump this whenever the generated shell changes so an older broken worker
 // cannot keep serving stale hashed bundles during local or Pages deployment.
-const CACHE = "neko-reader-shell-v26";
+const CACHE = "neko-reader-shell-v27";
 const APP_SHELL = new URL("./", self.registration.scope).toString();
 self.addEventListener("install", (event) => {
   event.waitUntil(caches.open(CACHE).then((cache) => cache.addAll([APP_SHELL, new URL("manifest.webmanifest", APP_SHELL).toString()])).then(() => self.skipWaiting()));
@@ -14,6 +14,7 @@ self.addEventListener("fetch", (event) => {
   if (url.origin !== self.location.origin || url.pathname.includes("/api/")) return;
   if (event.request.mode === "navigate") {
     event.respondWith(fetch(event.request).then((response) => {
+      if (!response.ok || !response.headers.get("content-type")?.includes("text/html")) return response;
       // Clone while the body is still untouched. Cloning inside the async
       // caches.open() callback races the browser consuming the response.
       const copy = response.clone();

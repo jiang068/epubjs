@@ -20,7 +20,7 @@ export class NekoApp {
     if ("serviceWorker" in navigator && location.protocol !== "file:") {
       // Always check the worker script itself for updates; otherwise an old
       // broken worker can keep serving cached shell assets during local QA.
-      void navigator.serviceWorker.register("./sw.js", { updateViaCache: "none" }).catch(() => undefined);
+      void navigator.serviceWorker.register("./sw.js", { updateViaCache: "none" }).then((registration) => registration.update()).catch(() => undefined);
     }
     const legacy = new URLSearchParams(location.search);
     if (!location.hash && legacy.get("url")) {
@@ -64,7 +64,7 @@ export class NekoApp {
         return;
       }
       if (!hasBookContent(book)) {
-        this.root.innerHTML = pageShell("library", `<section class="not-found"><span>↻</span><h1>需要重新选择本地文件</h1><p>为避免浏览器存储不断膨胀，阅读器不会保存书籍本体。请返回书架，为《${book.name.replace(/[&<>"']/g, (value) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '\"': "&quot;", "'": "&#39;" })[value] || value)}》重新选择文件，进度会继续保留。</p><a class="button primary" href="#/library">返回书架</a></section>`);
+        this.root.innerHTML = pageShell("library", `<section class="not-found"><span>↻</span><h1>需要重新选择本地文件</h1><p>这本书的文件本体已被释放，但书架记录和阅读进度仍然保留。请返回书架，为《${book.name.replace(/[&<>"']/g, (value) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '\"': "&quot;", "'": "&#39;" })[value] || value)}》重新选择文件。</p><a class="button primary" href="#/library">返回书架</a></section>`);
         return;
       }
       this.reader = new ReaderView(this.root, book, this.preferences, route.locator);

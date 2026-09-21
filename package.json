@@ -10,14 +10,17 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@zip.js/zip.js": "latest",
-    "epubjs": "latest",
-    "idb": "latest",
-    "pdfjs-dist": "latest"
+    "@zip.js/zip.js": "2.16.0",
+    "epubjs": "0.3.93",
+    "idb": "8.0.3",
+    "pdfjs-dist": "6.3.289"
   },
   "devDependencies": {
-    "@types/node": "latest",
-    "typescript": "latest",
-    "vite": "latest"
+    "@types/node": "26.6.2",
+    "typescript": "7.0.2",
+    "vite": "8.3.0"
+  },
+  "overrides": {
+    "@xmldom/xmldom": "0.9.12"
   }
 }
