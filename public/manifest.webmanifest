@@ -1,0 +1,10 @@
+{
+  "name": "Neko Reader",
+  "short_name": "Neko Reader",
+  "description": "本地优先的二次元漫画与小说阅读器",
+  "start_url": "./",
+  "display": "standalone",
+  "background_color": "#110d1c",
+  "theme_color": "#171323",
+  "icons": []
+}

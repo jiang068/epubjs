@@ -1,105 +1,90 @@
-# EPUB.js 阅读器
+# Neko Reader
 
-一个基于 [EPUB.js](https://github.com/intity/epub-js) 的现代化网页EPUB电子书阅读器，支持多种阅读模式和主题。  
+一个纯前端、本地优先的二次元漫画与小说阅读器。工程源码在 `epubjs/`，Node/Vite 环境在上一级目录。应用使用适合静态托管的 Hash 子路由：`#/library`、`#/import`、`#/settings`、`#/read/<书籍ID>`。
 
-可应用于Alist/Openlist的Epub文件预览。
+## 支持格式
 
+- EPUB：章节目录、单/双页切换、50%–200% 字号、7 种主题、行距、插画页自动放大、阅读进度与 URL 定位
+- PDF：左右分页与连续滚动、缩放/适应宽度、页码跳转、阅读进度
+- CBZ/ZIP：单页、双页与连续滚动，支持缩放和移动端手势
+- 图片目录：桌面端选择文件夹后按自然序阅读，阅读模式与图片漫画一致
+- TXT：UTF-8/GB18030 自动兜底、分页、字体大小
 
+文件默认存入浏览器 IndexedDB，不会上传服务器。远程文件必须满足浏览器的 HTTPS 和 CORS 规则。
 
-## ✨ 特性
+阅读设置保存在浏览器本地。旧版的“默认 / 护眼绿 / 暖黄 / 夜间”设置会自动迁移；新版另外提供纸张、樱花和 OLED 纯黑主题。EPUB 配图支持整图放大、适应宽度与原始尺寸三种模式。
 
-### 基本操作
-- **翻页**: 点击工具栏的 `←` `→` 按钮或使用键盘方向键
-- **目录**: 点击 `目录` 按钮显示/隐藏章节目录
-- **字体**: 使用 `A+` `A-` 按钮调整字体大小
-- **主题**: 点击主题按钮（🌙/☀）切换阅读主题
-  - 默认模式：标准的黑字白底
-  - 护眼绿模式：绿色护眼背景
-  - 暖黄模式：温暖的黄色背景
-  - 夜间模式：深色背景浅色文字
-- **单/双页切换** - 支持单页/双页模式切换，支持桌面/移动端
+## 开发与构建
 
-## 界面预览
+完整工作区在外层目录执行：
 
-![双页-暖黄模式](pics/demo1.jpg)
-![夜间模式](pics/demo2.jpg)
-
-## 🚀 使用指南
-
-### 直接使用
-可以直接使用本仓库的github-pages;  
-
-但是如果连不上github可能就用不了：
-```url
-# Alist/Openlist使用这个：
-https://jiang068.github.io/epubjs/test.html?url=$durl
-
-# 其他用途使用这种，请自己拼接链接：
-https://jiang068.github.io/epubjs/test.html?url=你的EPUB文件地址
-
-# 注意：有的浏览器不允许在https站点后面加载http资源，所以EPUB文件地址最好是https的
-```
-### 在线部署
-1. 将项目文件部署到Web服务器
-2. 在浏览器中访问 `test.html?url=你的EPUB文件地址`即可
-
-### 本地运行
 ```bash
-# 克隆项目
-git clone https://github.com/jiang068/epubjs.git
-
-# 启动本地服务器（以Python为例）
-cd epubjs
-python -m http.server 8000
-
-# 在浏览器中访问
-http://127.0.0.1:8000/test.html?url=path/to/your/book.epub
-
-# 也可以接在线地址
-http://127.0.0.1:8000/test.html?url=https://example.com/sample.epub
+npm install
+npm run dev
+npm run build
 ```
 
-## 📁 项目结构
+单独克隆本仓库时也可以直接执行：
 
-```
-epubjs/
-├── test.html          # 主页面文件
-├── style.css          # 样式文件
-├── README.md          # 项目说明
-├── js/                # JavaScript文件目录
-│   ├── reader.js      # 核心阅读器逻辑
-│   ├── epub.min.js    # EPUB.js 核心库
-│   ├── jszip.min.js   # ZIP解压库
-│   ├── localforage.min.js # 本地存储库
-│   └── marked.min.js  # Markdown解析库
-└── pics/              # 图片资源目录
-    ├── demo1.jpg      # 界面预览图1
-    └── demo2.jpg      # 界面预览图2
+```bash
+npm ci
+npm run dev
+npm run build
 ```
 
-## 🔧 技术细节
+从完整工作区构建时产物在外层 `dist/`；单独克隆本仓库构建时产物在项目自己的 `dist/`。两者都可用于 Cloudflare Pages 或 GitHub Pages。项目使用相对资源路径和 Hash 路由，适合 GitHub Pages 的仓库子路径部署，复制或刷新阅读地址不会触发静态主机 404。
 
-### 核心依赖：[EPUB.js](https://github.com/intity/epub-js)
-- **epub.min.js** - EPUB文件解析和渲染
-- **jszip.min.js** - JS文件压缩
-- **localforage.min.js** - 本地数据存储
-- **marked.min.js** - Markdown内容解析
+## 项目结构
 
-### 功能分布：本仓库
-1. 在 `test.html` 中添加UI元素
-2. 在 `style.css` 中添加样式
-3. 在 `js/reader.js` 中实现功能逻辑
+```text
+functions/       Cloudflare Pages Functions（可选代理）
+public/          PWA、嵌入脚本与静态托管配置
+src/core/        路由、存储、文件源与阅读偏好
+src/engines/     EPUB、PDF、图片漫画与 TXT 引擎
+src/views/       书库、导入、阅读和设置页面
+```
 
-## 📋 Todo
+## 外部预览
 
-- 某些复杂的EPUB可能丢样式
-- 部分浏览器的CORS策略可能影响远程文件加载
-- 窗口大小变化时，内容页面不能动态响应
-- 调整单/双页时不能保留阅读进度（对于Epub可能无解）
-- 字号设置没有缓存，切章失效
+直接入口：
 
-## 🙏 致谢
+```text
+https://your-reader.example/#/open?url=<encoded-file-url>&name=<encoded-file-name>
+```
 
-- [EPUB.js](https://github.com/intity/epub-js)
+OpenList / Alist 的 Iframe 预览可以配置：
 
----
+```json
+{
+  "epub,pdf,txt,cbz": {
+    "Neko Reader": "https://your-reader.example/?url=$e_url&name=$e_name&embed=1"
+  }
+}
+```
+
+也可以嵌入普通网页：
+
+```html
+<div id="reader" style="height: 720px"></div>
+<script src="https://your-reader.example/embed.js"></script>
+<script>
+  NekoReader.mount("#reader", {
+    url: "https://files.example.com/book.epub",
+    name: "book.epub"
+  });
+</script>
+```
+
+HTTP 文件不能被 HTTPS 页面直接读取。需要将文件源升级为 HTTPS、启用 OpenList 代理，或另行提供受限的 Cloudflare Worker 代理；不要部署无限制的公共代理。
+
+本仓库附带可选的 Cloudflare Pages Function：`functions/api/proxy.ts`。部署 Pages 时设置环境变量 `READER_PROXY_ALLOWLIST`，值为允许访问的域名列表（逗号分隔），然后将阅读地址改成：
+
+```text
+https://your-reader.example/api/proxy?url=$e_url
+```
+
+GitHub Pages 不运行 Functions；纯静态部署仍然只支持 HTTPS+CORS 文件。
+
+## 依赖版本
+
+仓库内的 `package-lock.json` 锁定了当前验证过的依赖版本；完整工作区的外层锁文件只服务于本地 workspace。当前使用 EPUB.js 0.3.93、PDF.js 6.3.289、zip.js 2.16.0、Vite 8.3.0 和 TypeScript 7.0.2。PDF.js 的 worker 会随静态产物一起发布。
