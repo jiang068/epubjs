@@ -28,7 +28,7 @@ export function renderImport(root: HTMLElement): void {
       <button class="import-card" id="pick-folder"><span class="import-icon">▧</span><strong>漫画文件夹</strong><small>自动按文件名自然排序，适合一话一文件夹</small></button>
     </section>
     <section class="panel remote-panel"><div><p class="eyebrow">REMOTE URL</p><h2>外部文件链接</h2><p>HTTPS + CORS 可直接读取；Cloudflare Pages 部署时，HTTP 会自动走项目的白名单代理。</p></div><form id="url-form" class="stack-form"><label>文件地址<input id="url-input" type="url" placeholder="https://example.com/book.epub" required></label><label>显示名称（可选）<input id="name-input" type="text" placeholder="例如：第一卷.epub"></label><button class="button primary" type="submit">打开远程文件</button></form></section>
-    <section class="panel tips"><h2>导入说明</h2><div class="feature-list"><p><b>图片漫画</b><span>多选图片或选择文件夹，阅读器会合并为一本漫画。</span></p><p><b>本地保存</b><span>文件进入浏览器 IndexedDB，大文件受浏览器存储配额限制。</span></p><p><b>静态部署</b><span>GitHub Pages 无服务端代理，远程源必须支持 HTTPS 与 CORS。</span></p></div></section>
+    <section class="panel tips"><h2>导入说明</h2><div class="feature-list"><p><b>图片漫画</b><span>多选图片或选择文件夹，阅读器会合并为一本漫画。</span></p><p><b>可控的本地保留</b><span>默认保留最近 3 本的文件本体；可在“阅读设置”中改为不保留、1 / 3 / 5 / 10 本或不限数量。</span></p><p><b>静态部署</b><span>GitHub Pages 无服务端代理，远程源必须支持 HTTPS 与 CORS。</span></p></div></section>
     <input id="file-input" hidden type="file" multiple accept=".epub,.pdf,.txt,.cbz,.zip,image/*">
     <input id="folder-input" hidden type="file" multiple webkitdirectory directory accept="image/*">`);
 
@@ -45,6 +45,13 @@ export function renderImport(root: HTMLElement): void {
   };
   const fileInput = root.querySelector<HTMLInputElement>("#file-input");
   const folderInput = root.querySelector<HTMLInputElement>("#folder-input");
+  const supportsDirectoryPicker = folderInput && typeof (folderInput as unknown as Record<string, unknown>).webkitdirectory === "boolean";
+  if (folderInput && !supportsDirectoryPicker) {
+    folderInput.removeAttribute("webkitdirectory");
+    folderInput.removeAttribute("directory");
+    const hint = root.querySelector<HTMLElement>("#pick-folder small");
+    if (hint) hint.textContent = "当前浏览器请多选漫画图片，阅读器会自动排序";
+  }
   root.querySelector("#pick-file")?.addEventListener("click", () => fileInput?.click());
   root.querySelector("#pick-folder")?.addEventListener("click", () => folderInput?.click());
   fileInput?.addEventListener("change", () => void importAndOpen(fileInput.files));

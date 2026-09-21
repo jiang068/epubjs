@@ -18,6 +18,9 @@ export interface BookRecord {
   addedAt: number;
   updatedAt: number;
   url?: string;
+  localSource?: "file" | "folder";
+  offlineStored?: boolean;
+  cachedAt?: number;
   blob?: Blob;
   images?: StoredImage[];
   progress: number;

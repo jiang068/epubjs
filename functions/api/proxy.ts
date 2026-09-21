@@ -33,11 +33,13 @@ export async function onRequest(context: PagesContext): Promise<Response> {
     const value = context.request.headers.get(name);
     if (value) requestHeaders.set(name, value);
   }
-  const upstream = await fetch(target.toString(), { method: context.request.method, headers: requestHeaders, redirect: "follow" });
+  const upstream = await fetch(target.toString(), { method: context.request.method, headers: requestHeaders, redirect: "follow", cache: "no-store" });
   const headers = corsHeaders();
-  for (const name of ["accept-ranges", "content-length", "content-range", "content-type", "etag", "last-modified", "cache-control"]) {
+  for (const name of ["accept-ranges", "content-length", "content-range", "content-type", "etag", "last-modified"]) {
     const value = upstream.headers.get(name);
     if (value) headers.set(name, value);
   }
+  headers.set("Cache-Control", "no-store, max-age=0");
+  headers.set("CDN-Cache-Control", "no-store");
   return new Response(context.request.method === "HEAD" ? null : upstream.body, { status: upstream.status, headers });
 }

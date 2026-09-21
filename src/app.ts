@@ -1,7 +1,7 @@
 import { applyPreferences, loadPreferences, type ReaderPreferences } from "./core/preferences";
 import { navigate, readerPath, startRouter, type AppRoute } from "./core/router";
 import { recordFromUrl } from "./core/source";
-import { getBook, saveBook } from "./core/storage";
+import { getBook, hasBookContent, saveBook } from "./core/storage";
 import { pageShell, toast } from "./ui/common";
 import { renderImport } from "./views/import";
 import { renderLibrary } from "./views/library";
@@ -61,6 +61,10 @@ export class NekoApp {
       if (token !== this.renderToken) return;
       if (!book) {
         this.root.innerHTML = pageShell("library", '<section class="not-found"><span>?</span><h1>找不到这本书</h1><p>本地文件可能来自另一台设备或已被浏览器清理。</p><a class="button primary" href="#/import">重新导入</a></section>');
+        return;
+      }
+      if (!hasBookContent(book)) {
+        this.root.innerHTML = pageShell("library", `<section class="not-found"><span>↻</span><h1>需要重新选择本地文件</h1><p>为避免浏览器存储不断膨胀，阅读器不会保存书籍本体。请返回书架，为《${book.name.replace(/[&<>"']/g, (value) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '\"': "&quot;", "'": "&#39;" })[value] || value)}》重新选择文件，进度会继续保留。</p><a class="button primary" href="#/library">返回书架</a></section>`);
         return;
       }
       this.reader = new ReaderView(this.root, book, this.preferences, route.locator);

@@ -42,7 +42,7 @@ export async function materializeBlob(source: BookSource): Promise<Blob> {
     if (!source.record.blob) throw new Error("本地书籍内容已被清理，请重新选择文件");
     return source.record.blob;
   }
-  const response = await fetch(source.url, { mode: "cors", credentials: "omit" });
+  const response = await fetch(source.url, { mode: "cors", credentials: "omit", cache: "no-store" });
   if (!response.ok) throw new Error(`远程文件请求失败（HTTP ${response.status}）`);
   return response.blob();
 }
@@ -63,6 +63,7 @@ export function recordFromFile(file: File, format: BookFormat): BookRecord {
     size: file.size,
     addedAt: Date.now(),
     updatedAt: Date.now(),
+    localSource: "file",
     blob: file,
     progress: 0
   };
@@ -77,6 +78,7 @@ export function recordFromImages(images: StoredImage[], title = "图片漫画"):
     size,
     addedAt: Date.now(),
     updatedAt: Date.now(),
+    localSource: "folder",
     images,
     progress: 0
   };
