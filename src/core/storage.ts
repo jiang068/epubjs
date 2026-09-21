@@ -90,19 +90,22 @@ async function migrateLegacyBookBodies(opened: IDBPDatabase<NekoSchema>): Promis
 }
 
 function db(): Promise<IDBPDatabase<NekoSchema>> {
-  database ??= openDB<NekoSchema>("neko-reader", 2, {
-    upgrade(upgradeDb, oldVersion, _newVersion, upgradeTransaction) {
-      if (oldVersion < 1) {
-        const store = upgradeDb.createObjectStore("books", { keyPath: "id" });
-        store.createIndex("by-updated", "updatedAt");
-        store.createIndex("by-cached", "cachedAt");
-      }
-      if (oldVersion < 2) {
-        const books = upgradeTransaction.objectStore("books");
-        if (books && !books.indexNames.contains("by-cached")) books.createIndex("by-cached", "cachedAt");
-        const contents = upgradeDb.createObjectStore("contents", { keyPath: "id" });
-        contents.createIndex("by-cached", "cachedAt");
-      }
+  database ??= openDB<NekoSchema>("neko-reader", 3, {
+    upgrade(upgradeDb, _oldVersion, _newVersion, upgradeTransaction) {
+      // Older builds created one of the stores without all of its indexes.
+      // Always repair the complete schema during an upgrade instead of
+      // relying only on the version number; otherwise importing a folder can
+      // fail with NotFoundError when a missing index is accessed.
+      const books = upgradeDb.objectStoreNames.contains("books")
+        ? upgradeTransaction.objectStore("books")
+        : upgradeDb.createObjectStore("books", { keyPath: "id" });
+      if (!books.indexNames.contains("by-updated")) books.createIndex("by-updated", "updatedAt");
+      if (!books.indexNames.contains("by-cached")) books.createIndex("by-cached", "cachedAt");
+
+      const contents = upgradeDb.objectStoreNames.contains("contents")
+        ? upgradeTransaction.objectStore("contents")
+        : upgradeDb.createObjectStore("contents", { keyPath: "id" });
+      if (!contents.indexNames.contains("by-cached")) contents.createIndex("by-cached", "cachedAt");
     }
   }).then(async (opened) => {
     await migrateLegacyBookBodies(opened);

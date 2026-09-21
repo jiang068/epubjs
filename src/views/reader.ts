@@ -2,7 +2,7 @@ import { replaceReaderLocation, navigate } from "../core/router";
 import { sourceFromRecord } from "../core/source";
 import { saveBook, updateProgress } from "../core/storage";
 import { THEME_OPTIONS, savePreferences, type ReaderPreferences } from "../core/preferences";
-import type { BookFormat, BookMetadata, BookRecord, ImageFit, Locator, ReaderEngine, ReaderFlow, ReaderHost, ReaderSpread, ReaderTheme } from "../types";
+import type { BookFormat, BookMetadata, BookRecord, ImageFit, Locator, ReaderDirection, ReaderEngine, ReaderFlow, ReaderHost, ReaderSpread, ReaderTheme } from "../types";
 import { FORMAT_LABELS } from "../types";
 import { toast } from "../ui/common";
 
@@ -76,6 +76,7 @@ export class ReaderView {
       this.engine.setLineHeight?.(this.preferences.lineHeight);
       this.engine.setImageFit?.(this.preferences.imageFit);
       this.engine.setZoom?.(this.preferences.scrollZoom);
+      this.engine.setDirection?.(this.preferences.direction);
       if (initialLocator) await this.engine.goTo(initialLocator);
       this.restoring = false;
       if (this.latestLocator) this.persistLocation(this.latestLocator, this.latestLocator.percent);
@@ -90,7 +91,7 @@ export class ReaderView {
       <button class="reader-fab reader-back-fab" id="back-button" aria-label="返回书架" title="返回书架">←</button>
       <main class="reader-main">
         <aside class="reader-drawer chapter-panel" id="chapter-panel"><div class="drawer-header"><div><p>CONTENTS</p><h2>目录</h2></div><button class="drawer-close" data-close-drawer>×</button></div><div id="chapter-list"><p class="muted">正在载入目录…</p></div></aside>
-        <aside class="reader-drawer appearance-panel" id="appearance-panel"><div class="drawer-header"><div><p>APPEARANCE</p><h2>阅读显示</h2></div><button class="drawer-close" data-close-drawer>×</button></div><div class="drawer-section flow-settings"><label>阅读方式</label><div class="segment-control"><button data-reader-flow="paginated" class="${this.preferences.flow === "paginated" ? "active" : ""}">分页翻页</button><button data-reader-flow="scrolled" class="${this.preferences.flow === "scrolled" ? "active" : ""}">上下滚动</button></div></div><div class="drawer-section spread-settings"><label>单页 / 双页</label><div class="segment-control"><button data-reader-spread="single" class="${this.preferences.spread === "single" ? "active" : ""}">单页</button><button data-reader-spread="double" class="${this.preferences.spread === "double" ? "active" : ""}">双页</button></div></div><div class="drawer-section scroll-zoom-settings"><label>${this.book.format === "comic" ? "漫画缩放" : "滚动宽度 / 缩放"} <strong id="reader-zoom-value">${this.preferences.scrollZoom}%</strong></label><div class="font-control"><button class="button secondary" id="zoom-down">−</button><button class="button secondary" id="zoom-up">＋</button></div><input id="reader-zoom" type="range" min="30" max="100" step="5" value="${this.preferences.scrollZoom}"></div><div class="drawer-section"><label>字号 <strong id="reader-font-value">${this.preferences.fontSize}%</strong></label><div class="font-control"><button class="button secondary" id="font-down">A−</button><button class="button secondary" id="font-up">A＋</button></div></div><div class="drawer-section page-fit-settings"><label>页面适应</label><button class="button secondary" id="fit-button">切换适应宽度 / 整页</button></div><div class="drawer-section"><label>正文行距 <strong id="reader-line-value">${this.preferences.lineHeight.toFixed(2)}</strong></label><input id="reader-line-height" type="range" min="1.35" max="2.4" step="0.05" value="${this.preferences.lineHeight}"></div><div class="drawer-section"><label>背景主题</label><div class="reader-themes">${THEME_OPTIONS.map((theme) => `<button class="theme-dot theme-${theme.id} ${this.preferences.theme === theme.id ? "active" : ""}" data-reader-theme="${theme.id}" title="${theme.label}"><span></span>${theme.label}</button>`).join("")}</div></div><div class="drawer-section epub-image-settings"><label>EPUB 配图</label><div class="segment-control vertical"><button data-reader-image-fit="contain" class="${this.preferences.imageFit === "contain" ? "active" : ""}">整图放大</button><button data-reader-image-fit="width" class="${this.preferences.imageFit === "width" ? "active" : ""}">适应宽度</button><button data-reader-image-fit="original" class="${this.preferences.imageFit === "original" ? "active" : ""}">原始尺寸</button></div></div></aside>
+        <aside class="reader-drawer appearance-panel" id="appearance-panel"><div class="drawer-header"><div><p>APPEARANCE</p><h2>阅读显示</h2></div><button class="drawer-close" data-close-drawer>×</button></div><div class="drawer-section flow-settings"><label>阅读方式</label><div class="segment-control"><button data-reader-flow="paginated" class="${this.preferences.flow === "paginated" ? "active" : ""}">分页翻页</button><button data-reader-flow="scrolled" class="${this.preferences.flow === "scrolled" ? "active" : ""}">上下滚动</button></div></div><div class="drawer-section direction-settings"><label>翻页方向</label><div class="segment-control"><button data-reader-direction="forward" class="${this.preferences.direction === "forward" ? "active" : ""}">正序</button><button data-reader-direction="reverse" class="${this.preferences.direction === "reverse" ? "active" : ""}">倒序（日漫）</button></div></div><div class="drawer-section spread-settings"><label>单页 / 双页</label><div class="segment-control"><button data-reader-spread="single" class="${this.preferences.spread === "single" ? "active" : ""}">单页</button><button data-reader-spread="double" class="${this.preferences.spread === "double" ? "active" : ""}">双页</button></div></div><div class="drawer-section scroll-zoom-settings"><label>${this.book.format === "comic" ? "漫画缩放" : "滚动宽度 / 缩放"} <strong id="reader-zoom-value">${this.preferences.scrollZoom}%</strong></label><div class="font-control"><button class="button secondary" id="zoom-down">−</button><button class="button secondary" id="zoom-up">＋</button></div><input id="reader-zoom" type="range" min="30" max="100" step="5" value="${this.preferences.scrollZoom}"></div><div class="drawer-section"><label>字号 <strong id="reader-font-value">${this.preferences.fontSize}%</strong></label><div class="font-control"><button class="button secondary" id="font-down">A−</button><button class="button secondary" id="font-up">A＋</button></div></div><div class="drawer-section page-fit-settings"><label>页面适应</label><button class="button secondary" id="fit-button">切换适应宽度 / 整页</button></div><div class="drawer-section"><label>正文行距 <strong id="reader-line-value">${this.preferences.lineHeight.toFixed(2)}</strong></label><input id="reader-line-height" type="range" min="1.35" max="2.4" step="0.05" value="${this.preferences.lineHeight}"></div><div class="drawer-section"><label>背景主题</label><div class="reader-themes">${THEME_OPTIONS.map((theme) => `<button class="theme-dot theme-${theme.id} ${this.preferences.theme === theme.id ? "active" : ""}" data-reader-theme="${theme.id}" title="${theme.label}"><span></span>${theme.label}</button>`).join("")}</div></div><div class="drawer-section epub-image-settings"><label>EPUB 配图</label><div class="segment-control vertical"><button data-reader-image-fit="contain" class="${this.preferences.imageFit === "contain" ? "active" : ""}">整图放大</button><button data-reader-image-fit="width" class="${this.preferences.imageFit === "width" ? "active" : ""}">适应宽度</button><button data-reader-image-fit="original" class="${this.preferences.imageFit === "original" ? "active" : ""}">原始尺寸</button></div></div></aside>
         <aside class="reader-drawer page-jump-panel" id="page-jump-panel"><div class="drawer-header"><div><p>PAGE</p><h2>跳转页码</h2></div><button class="drawer-close" data-close-drawer>×</button></div><form id="jump-form" class="jump-form"><label>${this.book.format === "epub" ? "输入当前章节页码" : "输入页码"}</label><div><input id="jump-page" type="number" min="1" inputmode="numeric" placeholder="页码"><button class="button primary" type="submit">跳转</button></div></form></aside>
         <section class="reader-stage" id="reader-stage">
           <button class="page-zone page-zone-prev" id="page-zone-prev" aria-label="上一页"><span>‹</span></button>
@@ -110,6 +111,7 @@ export class ReaderView {
     </div>`;
     if (this.book.format === "epub" || this.book.format === "txt") this.root.querySelector(".page-fit-settings")?.classList.add("hidden");
     if (this.book.format !== "epub") this.root.querySelector(".epub-image-settings")?.classList.add("hidden");
+    if (this.book.format !== "comic" && this.book.format !== "pdf") this.root.querySelector(".direction-settings")?.classList.add("hidden");
     if (this.book.format !== "epub" && this.book.format !== "txt" && this.book.format !== "comic" && this.book.format !== "pdf") {
       this.root.querySelector(".spread-settings")?.classList.add("hidden");
     }
@@ -143,6 +145,7 @@ export class ReaderView {
     this.root.querySelector<HTMLInputElement>("#reader-zoom")?.addEventListener("input", (event) => this.setZoom(Number((event.target as HTMLInputElement).value)));
     this.root.querySelectorAll<HTMLButtonElement>("[data-reader-theme]").forEach((button) => button.addEventListener("click", () => this.setTheme(button.dataset.readerTheme as ReaderTheme)));
     this.root.querySelectorAll<HTMLButtonElement>("[data-reader-spread]").forEach((button) => button.addEventListener("click", () => this.setSpread(button.dataset.readerSpread as ReaderSpread)));
+    this.root.querySelectorAll<HTMLButtonElement>("[data-reader-direction]").forEach((button) => button.addEventListener("click", () => this.setDirection(button.dataset.readerDirection as ReaderDirection)));
     this.root.querySelectorAll<HTMLButtonElement>("[data-reader-image-fit]").forEach((button) => button.addEventListener("click", () => this.setImageFit(button.dataset.readerImageFit as ImageFit)));
     this.root.querySelector<HTMLInputElement>("#reader-line-height")?.addEventListener("input", (event) => this.setLineHeight(Number((event.target as HTMLInputElement).value)));
     this.bindImagePreview();
@@ -238,6 +241,14 @@ export class ReaderView {
     savePreferences(this.preferences);
     this.engine?.setSpread?.(spread);
     this.root.querySelectorAll<HTMLElement>("[data-reader-spread]").forEach((node) => node.classList.toggle("active", node.dataset.readerSpread === spread));
+  }
+
+  private setDirection(direction: ReaderDirection): void {
+    if (direction !== "forward" && direction !== "reverse") return;
+    this.preferences.direction = direction;
+    savePreferences(this.preferences);
+    this.engine?.setDirection?.(direction);
+    this.root.querySelectorAll<HTMLElement>("[data-reader-direction]").forEach((node) => node.classList.toggle("active", node.dataset.readerDirection === direction));
   }
 
   private setFlow(flow: ReaderFlow): void {

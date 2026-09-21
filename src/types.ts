@@ -69,6 +69,7 @@ export interface ReaderEngine {
   setLineHeight?(lineHeight: number): void;
   setImageFit?(fit: ImageFit): void;
   setZoom?(percent: number): void;
+  setDirection?(direction: ReaderDirection): void;
   toggleFit?(): void;
   destroy(): void;
 }
@@ -76,6 +77,7 @@ export interface ReaderEngine {
 export type ReaderTheme = "original" | "paper" | "sepia" | "eye" | "sakura" | "night" | "oled";
 export type ReaderSpread = "single" | "double";
 export type ReaderFlow = "paginated" | "scrolled";
+export type ReaderDirection = "forward" | "reverse";
 export type ImageFit = "contain" | "width" | "original";
 
 export const FORMAT_LABELS: Record<BookFormat, string> = {

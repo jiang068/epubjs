@@ -1,4 +1,4 @@
-import type { ImageFit, ReaderFlow, ReaderSpread, ReaderTheme } from "../types";
+import type { ImageFit, ReaderDirection, ReaderFlow, ReaderSpread, ReaderTheme } from "../types";
 
 export interface ReaderPreferences {
   theme: ReaderTheme;
@@ -8,6 +8,7 @@ export interface ReaderPreferences {
   lineHeight: number;
   imageFit: ImageFit;
   scrollZoom: number;
+  direction: ReaderDirection;
 }
 
 export const THEME_OPTIONS: Array<{ id: ReaderTheme; label: string; hint: string }> = [
@@ -34,6 +35,7 @@ export function loadPreferences(): ReaderPreferences {
   const storedLineHeight = Number(localStorage.getItem("neko-line-height") || 1.85);
   const storedImageFit = localStorage.getItem("neko-image-fit");
   const storedScrollZoom = Number(localStorage.getItem("neko-scroll-zoom") || 90);
+  const storedDirection = localStorage.getItem("neko-direction");
   return {
     theme: storedTheme && validThemes.has(storedTheme) ? storedTheme : "sakura",
     fontSize: Number.isFinite(storedFontSize) ? Math.max(50, Math.min(200, storedFontSize)) : 100,
@@ -41,7 +43,8 @@ export function loadPreferences(): ReaderPreferences {
     flow: storedFlow === "scrolled" ? "scrolled" : "paginated",
     lineHeight: Number.isFinite(storedLineHeight) ? Math.max(1.35, Math.min(2.4, storedLineHeight)) : 1.85,
     imageFit: storedImageFit === "width" || storedImageFit === "original" ? storedImageFit : "contain",
-    scrollZoom: Number.isFinite(storedScrollZoom) ? Math.max(30, Math.min(100, storedScrollZoom)) : 90
+    scrollZoom: Number.isFinite(storedScrollZoom) ? Math.max(30, Math.min(100, storedScrollZoom)) : 90,
+    direction: storedDirection === "reverse" ? "reverse" : "forward"
   };
 }
 
@@ -53,6 +56,7 @@ export function savePreferences(preferences: ReaderPreferences): void {
   localStorage.setItem("neko-line-height", String(preferences.lineHeight));
   localStorage.setItem("neko-image-fit", preferences.imageFit);
   localStorage.setItem("neko-scroll-zoom", String(preferences.scrollZoom));
+  localStorage.setItem("neko-direction", preferences.direction);
   document.body.dataset.theme = preferences.theme;
 }
 

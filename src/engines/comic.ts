@@ -1,6 +1,6 @@
 import { BlobReader, BlobWriter, ZipReader } from "@zip.js/zip.js";
 import { isImageFile, materializeBlob, sortNaturally } from "../core/source";
-import type { BookMetadata, BookSource, ImageFit, Locator, ReaderEngine, ReaderFlow, ReaderHost, ReaderSpread, ReaderTheme, StoredImage } from "../types";
+import type { BookMetadata, BookSource, ImageFit, Locator, ReaderDirection, ReaderEngine, ReaderFlow, ReaderHost, ReaderSpread, ReaderTheme, StoredImage } from "../types";
 
 interface ComicEntry { getData?: (writer: BlobWriter) => Promise<Blob> }
 interface ComicPage { name: string; blob?: Blob; entry?: ComicEntry }
@@ -23,6 +23,8 @@ export class ComicEngine implements ReaderEngine {
   private zoom = 90;
   private flow: ReaderFlow = "paginated";
   private spread: ReaderSpread = "single";
+  private direction: ReaderDirection = "forward";
+  private directionInitialized = false;
   private scrollHandler = () => this.updateScrolledLocation();
 
   async open(source: BookSource, host: ReaderHost): Promise<BookMetadata> {
@@ -52,6 +54,7 @@ export class ComicEngine implements ReaderEngine {
     }
     if (!this.pages.length) throw new Error("没有找到可阅读的图片。漫画 URL 建议使用 CBZ/ZIP 文件。");
     this.index = 0;
+    this.directionInitialized = false;
     const metadata = { title: source.kind === "url" ? source.name || "远程漫画" : source.kind === "stored" ? source.record.name : source.file.name, format: this.format, total: this.pages.length };
     host.onMetadata(metadata);
     await this.render();
@@ -120,9 +123,20 @@ export class ComicEngine implements ReaderEngine {
 
   private emitLocation(): void {
     if (!this.host || !this.pages.length) return;
-    const progress = this.index / Math.max(1, this.pages.length - 1);
+    const logicalIndex = this.logicalIndexForSource(this.index);
+    const progress = logicalIndex / Math.max(1, this.pages.length - 1);
     const step = this.spread === "double" && this.flow === "paginated" ? 2 : 1;
-    this.host.onLocation({ kind: this.format, page: this.index + 1, total: this.pages.length, percent: progress, atStart: this.index === 0, atEnd: this.index >= this.pages.length - step }, progress);
+    this.host.onLocation({ kind: this.format, page: logicalIndex + 1, total: this.pages.length, percent: progress, atStart: logicalIndex === 0, atEnd: logicalIndex >= this.pages.length - step }, progress);
+  }
+
+  private sourceIndexForLogical(logicalIndex: number): number {
+    const index = Math.max(0, Math.min(this.pages.length - 1, Math.round(logicalIndex)));
+    return this.direction === "reverse" ? this.pages.length - index - 1 : index;
+  }
+
+  private logicalIndexForSource(sourceIndex: number): number {
+    const index = Math.max(0, Math.min(this.pages.length - 1, Math.round(sourceIndex)));
+    return this.direction === "reverse" ? this.pages.length - index - 1 : index;
   }
 
   private async render(): Promise<void> {
@@ -138,9 +152,11 @@ export class ComicEngine implements ReaderEngine {
     const spread = document.createElement("div");
     spread.className = `comic-spread comic-spread-${this.spread}`;
     spread.style.setProperty("--comic-zoom", String(this.zoom / 100));
+    spread.classList.toggle("comic-direction-reverse", this.direction === "reverse");
     const count = this.spread === "double" ? 2 : 1;
-    for (let offset = 0; offset < count && this.index + offset < this.pages.length; offset += 1) {
-      const pageIndex = this.index + offset;
+    const logicalIndex = this.logicalIndexForSource(this.index);
+    for (let offset = 0; offset < count && logicalIndex + offset < this.pages.length; offset += 1) {
+      const pageIndex = this.sourceIndexForLogical(logicalIndex + offset);
       const image = this.createImage(pageIndex);
       spread.append(image);
       await this.loadImage(pageIndex, image, token);
@@ -156,14 +172,15 @@ export class ComicEngine implements ReaderEngine {
     list.className = "comic-scroll-list";
     list.style.setProperty("--comic-scroll-width", `${this.zoom}%`);
     const token = this.renderToken;
-    this.pages.forEach((_page, pageIndex) => {
+    for (let logicalIndex = 0; logicalIndex < this.pages.length; logicalIndex += 1) {
+      const pageIndex = this.sourceIndexForLogical(logicalIndex);
       const image = this.createImage(pageIndex);
       // Keep unloaded ZIP entries from collapsing to zero height. A modest
       // placeholder lets IntersectionObserver load only the nearby pages
       // instead of considering every image to be visible at the top.
       image.style.minHeight = "240px";
       list.append(image);
-    });
+    }
     surface.append(list);
     this.imageObserver = new IntersectionObserver((entries) => {
       for (const entry of entries) {
@@ -206,9 +223,10 @@ export class ComicEngine implements ReaderEngine {
 
   async next(): Promise<void> {
     const step = this.spread === "double" && this.flow === "paginated" ? 2 : 1;
-    const target = Math.min(this.pages.length - 1, this.index + step);
-    if (target === this.index) return;
-    this.index = target;
+    const logicalIndex = this.logicalIndexForSource(this.index);
+    const targetLogical = Math.min(this.pages.length - 1, logicalIndex + step);
+    if (targetLogical === logicalIndex) return;
+    this.index = this.sourceIndexForLogical(targetLogical);
     if (this.flow === "scrolled") this.scrollToIndex(this.index);
     else await this.render();
     if (this.flow === "scrolled") this.emitLocation();
@@ -216,16 +234,17 @@ export class ComicEngine implements ReaderEngine {
 
   async prev(): Promise<void> {
     const step = this.spread === "double" && this.flow === "paginated" ? 2 : 1;
-    const target = Math.max(0, this.index - step);
-    if (target === this.index) return;
-    this.index = target;
+    const logicalIndex = this.logicalIndexForSource(this.index);
+    const targetLogical = Math.max(0, logicalIndex - step);
+    if (targetLogical === logicalIndex) return;
+    this.index = this.sourceIndexForLogical(targetLogical);
     if (this.flow === "scrolled") this.scrollToIndex(this.index);
     else await this.render();
     if (this.flow === "scrolled") this.emitLocation();
   }
 
   async goTo(locator: Locator): Promise<void> {
-    this.index = Math.max(0, Math.min(this.pages.length - 1, (locator.page || 1) - 1));
+    this.index = this.sourceIndexForLogical((locator.page || 1) - 1);
     if (this.flow === "scrolled") this.scrollToIndex(this.index, "auto");
     else await this.render();
     if (this.flow === "scrolled") this.emitLocation();
@@ -238,6 +257,16 @@ export class ComicEngine implements ReaderEngine {
     if (flow === this.flow) return;
     this.flow = flow;
     void this.render();
+  }
+
+  setDirection(direction: ReaderDirection): void {
+    if (direction !== "forward" && direction !== "reverse") return;
+    if (direction === this.direction && this.directionInitialized) return;
+    const firstApply = !this.directionInitialized;
+    this.direction = direction;
+    this.directionInitialized = true;
+    if (firstApply && direction === "reverse" && this.pages.length) this.index = this.pages.length - 1;
+    if (this.host) void this.render();
   }
 
   setSpread(spread: ReaderSpread): void {

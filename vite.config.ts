@@ -22,6 +22,10 @@ export default defineConfig({
   },
   server: {
     host: "127.0.0.1",
-    port: 4173
+    port: 4173,
+    // Dependencies live in the workspace shell one level above the Git
+    // project. Allow Vite's development server to serve the PDF worker URL
+    // generated from pdfjs-dist instead of falling back to a fake worker.
+    fs: { allow: [workspaceRoot] }
   }
 });

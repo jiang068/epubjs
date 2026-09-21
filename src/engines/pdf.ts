@@ -1,6 +1,6 @@
 import * as pdfjsLib from "pdfjs-dist";
 import { materializeBlob } from "../core/source";
-import type { BookMetadata, BookSource, Locator, ReaderEngine, ReaderFlow, ReaderHost, ReaderTheme } from "../types";
+import type { BookMetadata, BookSource, Locator, ReaderDirection, ReaderEngine, ReaderFlow, ReaderHost, ReaderTheme } from "../types";
 
 type PdfDocument = {
   numPages: number;
@@ -28,6 +28,8 @@ export class PdfEngine implements ReaderEngine {
   private host?: ReaderHost;
   private zoom = 1;
   private fitWidth = true;
+  private direction: ReaderDirection = "forward";
+  private directionInitialized = false;
   private renderId = 0;
   private renderTask?: { cancel?: () => void };
   private resizeTimer?: number;
@@ -37,6 +39,7 @@ export class PdfEngine implements ReaderEngine {
   private scrollAnchor?: { page: number; offset: number };
   private scrolledList?: HTMLElement;
   private scrolledRenderQueue: Promise<void> = Promise.resolve();
+  private preservePageOnNextScrolledRender = false;
 
   private resizeHandler = () => {
     window.clearTimeout(this.resizeTimer);
@@ -62,6 +65,7 @@ export class PdfEngine implements ReaderEngine {
       const blob = await materializeBlob(source);
       this.doc = await pdfApi.getDocument({ data: new Uint8Array(await blob.arrayBuffer()) }).promise;
       this.page = 1;
+      this.directionInitialized = false;
       window.addEventListener("resize", this.resizeHandler, { passive: true });
       let title = source.kind === "url" ? source.name || "远程 PDF" : source.kind === "stored" ? source.record.name : source.file.name;
       try { title = (await this.doc.getMetadata?.())?.info?.Title || title; } catch { /* Metadata is optional. */ }
@@ -157,21 +161,25 @@ export class PdfEngine implements ReaderEngine {
       estimatedHeight = Math.max(240, Math.round(this.calculateScale(first).viewport.height));
       first.cleanup?.();
     } catch { /* The first real render will surface a useful error. */ }
-    for (let pageNumber = 1; pageNumber <= doc.numPages; pageNumber += 1) {
+    for (let logicalPage = 1; logicalPage <= doc.numPages; logicalPage += 1) {
+      const pageNumber = this.sourcePageForLogical(logicalPage);
       const item = document.createElement("section");
       item.className = "pdf-scroll-page";
       item.dataset.page = String(pageNumber);
       item.style.minHeight = `${estimatedHeight}px`;
-      item.setAttribute("aria-label", `第 ${pageNumber} 页`);
+      item.setAttribute("aria-label", `第 ${logicalPage} 页`);
       list.append(item);
     }
     if (renderId !== this.renderId || this.doc !== doc || !this.host) return;
     // The user may keep reading while the detached pages render. Sample the
     // live position now, at commit time, instead of restoring the stale
     // position captured when the zoom gesture began.
-    this.updateScrollLocation();
-    this.captureScrollAnchor();
-    const anchor = this.scrollAnchor;
+    if (!this.preservePageOnNextScrolledRender) {
+      this.updateScrollLocation();
+      this.captureScrollAnchor();
+    }
+    const anchor = this.scrollAnchor || (this.preservePageOnNextScrolledRender ? { page: this.page, offset: -12 } : undefined);
+    this.preservePageOnNextScrolledRender = false;
     const targetPage = Math.max(1, Math.min(doc.numPages, anchor?.page || this.page));
     // Swap and restore synchronously in the same task, before the browser can
     // paint the detached list at scrollTop 0.
@@ -243,8 +251,21 @@ export class PdfEngine implements ReaderEngine {
   private reportLocation(pageNumber: number): void {
     if (!this.host || !this.doc || this.reportedPage === pageNumber) return;
     this.reportedPage = pageNumber;
-    const progress = (pageNumber - 1) / Math.max(1, this.doc.numPages - 1);
-    this.host.onLocation({ kind: this.format, page: pageNumber, total: this.doc.numPages, percent: progress, atStart: pageNumber === 1, atEnd: pageNumber === this.doc.numPages }, progress);
+    const logicalPage = this.logicalPageForSource(pageNumber);
+    const progress = (logicalPage - 1) / Math.max(1, this.doc.numPages - 1);
+    this.host.onLocation({ kind: this.format, page: logicalPage, total: this.doc.numPages, percent: progress, atStart: logicalPage === 1, atEnd: logicalPage === this.doc.numPages }, progress);
+  }
+
+  private sourcePageForLogical(logicalPage: number): number {
+    if (!this.doc) return Math.max(1, logicalPage);
+    const page = Math.max(1, Math.min(this.doc.numPages, Math.round(logicalPage)));
+    return this.direction === "reverse" ? this.doc.numPages - page + 1 : page;
+  }
+
+  private logicalPageForSource(sourcePage: number): number {
+    if (!this.doc) return Math.max(1, sourcePage);
+    const page = Math.max(1, Math.min(this.doc.numPages, Math.round(sourcePage)));
+    return this.direction === "reverse" ? this.doc.numPages - page + 1 : page;
   }
 
   private captureScrollAnchor(): void {
@@ -276,24 +297,29 @@ export class PdfEngine implements ReaderEngine {
   async next(): Promise<void> {
     if (!this.doc) return;
     if (this.flow === "scrolled") { this.scrollByPage(1); return; }
-    if (this.page < this.doc.numPages) { this.page += 1; await this.render(); }
+    const logicalPage = this.logicalPageForSource(this.page);
+    if (logicalPage < this.doc.numPages) { this.page = this.sourcePageForLogical(logicalPage + 1); await this.render(); }
   }
 
   async prev(): Promise<void> {
     if (!this.doc) return;
     if (this.flow === "scrolled") { this.scrollByPage(-1); return; }
-    if (this.page > 1) { this.page -= 1; await this.render(); }
+    const logicalPage = this.logicalPageForSource(this.page);
+    if (logicalPage > 1) { this.page = this.sourcePageForLogical(logicalPage - 1); await this.render(); }
   }
 
   private scrollByPage(delta: number): void {
-    const target = this.host?.surface.querySelector<HTMLElement>(`.pdf-scroll-page[data-page="${Math.max(1, this.page + delta)}"]`);
+    const logicalPage = this.logicalPageForSource(this.page);
+    const targetSource = this.sourcePageForLogical(Math.max(1, Math.min(this.doc?.numPages || 1, logicalPage + delta)));
+    const target = this.host?.surface.querySelector<HTMLElement>(`.pdf-scroll-page[data-page="${targetSource}"]`);
     target?.scrollIntoView({ behavior: "smooth", block: "start" });
   }
 
   async goTo(locator: Locator): Promise<void> {
     if (!this.doc) return;
     const requested = Number(locator.page || 1);
-    this.page = Number.isFinite(requested) ? Math.max(1, Math.min(this.doc.numPages, Math.round(requested))) : 1;
+    const logicalPage = Number.isFinite(requested) ? Math.max(1, Math.min(this.doc.numPages, Math.round(requested))) : 1;
+    this.page = this.sourcePageForLogical(logicalPage);
     if (this.flow === "scrolled") {
       const target = this.host?.surface.querySelector<HTMLElement>(`.pdf-scroll-page[data-page="${this.page}"]`);
       if (target) {
@@ -314,6 +340,18 @@ export class PdfEngine implements ReaderEngine {
     this.flow = flow;
     this.reportedPage = 0;
     this.applyFlowClass();
+    if (this.host && this.doc) void this.render();
+  }
+
+  setDirection(direction: ReaderDirection): void {
+    if (direction !== "forward" && direction !== "reverse") return;
+    if (direction === this.direction && this.directionInitialized) return;
+    const firstApply = !this.directionInitialized;
+    this.direction = direction;
+    this.directionInitialized = true;
+    if (firstApply && direction === "reverse" && this.doc) this.page = this.doc.numPages;
+    if (this.flow === "scrolled") this.preservePageOnNextScrolledRender = true;
+    this.reportedPage = 0;
     if (this.host && this.doc) void this.render();
   }
 

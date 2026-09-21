@@ -41,6 +41,12 @@ export function renderImport(root: HTMLElement): void {
       else navigate("/library");
     } catch (error) {
       toast(error instanceof Error ? error.message : String(error), true);
+    } finally {
+      // Browsers do not fire `change` when the user selects the same file or
+      // folder twice in a row. Clear the control after every attempt so a
+      // folder can be imported again without refreshing the page.
+      if (fileInput) fileInput.value = "";
+      if (folderInput) folderInput.value = "";
     }
   };
   const fileInput = root.querySelector<HTMLInputElement>("#file-input");
