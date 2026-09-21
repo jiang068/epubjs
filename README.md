@@ -34,6 +34,44 @@ npm run build
 
 从完整工作区构建时产物在外层 `dist/`；单独克隆本仓库构建时产物在项目自己的 `dist/`。两者都可用于 Cloudflare Pages 或 GitHub Pages。项目使用相对资源路径和 Hash 路由，适合 GitHub Pages 的仓库子路径部署，复制或刷新阅读地址不会触发静态主机 404。
 
+## 自动部署
+
+### GitHub Pages
+
+仓库已经包含 `.github/workflows/deploy-pages.yml`。推送到 `main` 后，GitHub Actions 会依次执行依赖安装、类型检查、生产构建和 Pages 发布。
+
+首次使用时，在 GitHub 仓库打开 `Settings > Pages`，将 `Build and deployment > Source` 设为 `GitHub Actions`。以后只要推送 `main` 即可自动更新；也可以在 `Actions > Deploy GitHub Pages` 中手动运行。
+
+默认地址为：
+
+```text
+https://<GitHub用户名>.github.io/<仓库名>/
+```
+
+GitHub Pages 只发布静态 `dist/`，不会运行 `functions/`，因此 `/api/proxy` 在 GitHub Pages 上不可用。
+
+### Cloudflare Pages Git 直连
+
+在 Cloudflare 控制台进入 `Workers & Pages > Create application > Pages > Connect to Git`，授权并选择这个 GitHub 仓库，然后填写：
+
+| 配置项 | 值 |
+| --- | --- |
+| Production branch | `main` |
+| Framework preset | `Vite`，也可以选 `None` |
+| Build command | `npm run build` |
+| Build output directory | `dist` |
+| Root directory | 留空 |
+
+仓库根目录的 `.node-version` 会让 GitHub Actions 和 Cloudflare Pages 都使用 Node.js 24。保存后，推送 `main` 会发布生产版本，其他分支和 Pull Request 会生成独立预览地址。
+
+如果需要使用仓库内的受限远程文件代理，在 Cloudflare Pages 项目的变量设置中添加：
+
+```text
+READER_PROXY_ALLOWLIST=files.example.com,openlist.example.com
+```
+
+只填写你信任的文件源域名，不要把代理配置成允许任意主机。
+
 ## 项目结构
 
 ```text
