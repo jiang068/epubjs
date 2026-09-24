@@ -323,9 +323,11 @@ kbd { display: inline-grid; min-width: 28px; height: 27px; margin-right: 4px; pl
 .image-preview-image { z-index: 1; display: block; max-width: 94vw; max-height: 94dvh; object-fit: contain; user-select: none; }
 .reader-surface.reader-flow-scrolled { align-items: flex-start; justify-content: center; overflow: hidden; }
 .reader-surface.reader-flow-scrolled .epub-container { display: block !important; width: var(--reader-scroll-width, 90%) !important; max-width: none !important; height: 100% !important; min-height: 0 !important; margin-inline: auto; overflow-x: hidden !important; overflow-y: auto !important; }
-.reader-surface.reader-flow-scrolled .epub-view { display: block !important; width: 100% !important; max-width: none !important; height: auto !important; min-height: 0 !important; overflow: visible !important; }
+.reader-surface.reader-flow-scrolled:not(.reader-epub-fixed-layout) .epub-view { display: block !important; width: 100% !important; max-width: none !important; min-height: 0 !important; overflow: visible !important; }
+.reader-surface.reader-flow-scrolled.reader-epub-fixed-layout .epub-view { display: block !important; width: 100% !important; max-width: none !important; overflow: hidden !important; }
 .reader-surface.reader-flow-scrolled .epub-container > .epub-view { margin: 0 !important; }
-.reader-surface.reader-flow-scrolled iframe { display: block; width: 100% !important; max-width: none !important; height: auto; min-height: 0 !important; }
+.reader-surface.reader-flow-scrolled:not(.reader-epub-fixed-layout) iframe { display: block; width: 100% !important; max-width: none !important; min-height: 0 !important; }
+.reader-surface.reader-flow-scrolled.reader-epub-fixed-layout iframe { display: block; width: 100% !important; max-width: none !important; }
 .reader-shell.flow-scrolled:not(.format-pdf) .page-zone { display: none; }
 .reader-surface.pdf-surface.pdf-scrolled { align-items: flex-start; justify-content: center; overflow-x: hidden; overflow-y: auto; padding: 16px; }
 .reader-surface.pdf-surface.pdf-scrolled .pdf-scroll-list { display: flex; flex-direction: column; width: min(var(--reader-scroll-width, 90%), 1100px); gap: 18px; padding: 0 0 86px; margin: 0 auto; }

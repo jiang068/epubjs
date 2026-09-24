@@ -35,6 +35,9 @@ export class ReaderView {
   private metadata?: BookMetadata;
   private latestLocator?: Locator;
   private restoring = true;
+  private ready = false;
+  private pendingNavigation?: Locator;
+  private navigationVersion = 0;
   private destroyed = false;
   private pendingProgress?: { locator: Locator; progress: number };
   private progressTimer?: number;
@@ -77,7 +80,18 @@ export class ReaderView {
       this.engine.setImageFit?.(this.preferences.imageFit);
       this.engine.setZoom?.(this.preferences.scrollZoom);
       this.engine.setDirection?.(this.preferences.direction);
-      if (initialLocator) await this.engine.goTo(initialLocator);
+      let navigationVersion = this.navigationVersion;
+      const destination = this.pendingNavigation || initialLocator;
+      if (destination) await this.engine.goTo(destination);
+      // The directory is available as soon as EPUB metadata loads, before
+      // saved-position restoration necessarily finishes. A click during that
+      // interval must win over the older saved locator.
+      while (!this.destroyed && this.navigationVersion !== navigationVersion) {
+        navigationVersion = this.navigationVersion;
+        if (this.pendingNavigation) await this.engine.goTo(this.pendingNavigation);
+      }
+      if (this.destroyed) return;
+      this.ready = true;
       this.restoring = false;
       if (this.latestLocator) this.persistLocation(this.latestLocator, this.latestLocator.percent);
       if (this.book.url) await saveBook(this.book);
@@ -154,7 +168,7 @@ export class ReaderView {
       const page = Number(this.root.querySelector<HTMLInputElement>("#jump-page")?.value);
       if (Number.isFinite(page) && page > 0) {
         this.closeDrawers();
-        void this.engine?.goTo({ kind: this.book.format, page });
+        this.navigateTo({ kind: this.book.format, page });
       }
     });
     let startX = 0;
@@ -287,6 +301,10 @@ export class ReaderView {
     const format = this.root.querySelector("#reader-format");
     if (title) title.textContent = metadata.title;
     if (format) format.textContent = FORMAT_LABELS[metadata.format];
+    const jumpLabel = this.root.querySelector("#jump-form label");
+    if (jumpLabel && metadata.format === "epub" && metadata.total) {
+      jumpLabel.textContent = `输入全书页码（1–${metadata.total}）`;
+    }
     const list = this.root.querySelector("#chapter-list");
     if (!list) return;
     list.replaceChildren();
@@ -298,9 +316,16 @@ export class ReaderView {
       button.innerHTML = `<span>${String(index + 1).padStart(2, "0")}</span><b></b>`;
       const label = button.querySelector("b");
       if (label) label.textContent = chapter.label;
-      button.addEventListener("click", () => { void this.engine?.goTo({ kind: "epub", href: chapter.href }); this.closeDrawers(); });
+      button.addEventListener("click", () => { this.navigateTo({ kind: "epub", href: chapter.href }); this.closeDrawers(); });
       list.append(button);
     });
+  }
+
+  private navigateTo(locator: Locator): void {
+    this.navigationVersion += 1;
+    this.pendingNavigation = locator;
+    if (!this.ready) return;
+    void this.engine?.goTo(locator).catch((error: unknown) => this.showError(error));
   }
 
   private onLocation(locator: Locator, progress?: number): void {

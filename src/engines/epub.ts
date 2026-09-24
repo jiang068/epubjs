@@ -23,34 +23,31 @@ export class EpubEngine implements ReaderEngine {
   private lineHeight = 1.85;
   private imageFit: ImageFit = "contain";
   private zoom = 90;
+  private fixedLayout = false;
+  private fixedPageCount = 0;
   private locationsReady = false;
   private lastRawLocation?: any;
   private destroyed = false;
-  private resizeHandler = () => this.applySpread();
+  private flowTransitionVersion = 0;
+  private navigationVersion = 0;
+  private resizeHandler = () => {
+    this.applySpread();
+    window.requestAnimationFrame(() => this.alignAllFixedLayoutPages());
+  };
   private scrolledSurface?: HTMLElement;
+  private scrolledLocationTimer?: number;
   private scrolledBoundaryTimer?: number;
-  private scrolledCheckTimer?: number;
+  private lastFixedScrolledHref?: string;
   private scrolledBoundaryHandler = (): void => {
     if (this.flow !== "scrolled" || !this.rendition?.manager) return;
     const container = this.rendition.manager.container as HTMLElement | undefined;
     if (!container) return;
-    const nearBoundary = container.scrollTop <= 8 || container.scrollTop + container.clientHeight >= container.scrollHeight - 8;
-    if (!nearBoundary) return;
-    window.clearTimeout(this.scrolledBoundaryTimer);
-    this.scrolledBoundaryTimer = window.setTimeout(() => {
-      if (this.destroyed || this.flow !== "scrolled") return;
-      // EPUB.js normally queues this from its own scroll listener. Some
-      // browsers (and accessibility scrolling) change scrollTop without
-      // delivering that event to the manager, leaving the reader stuck at a
-      // chapter boundary. Ask the continuous manager to fill the adjacent
-      // spine section explicitly when a boundary is reached.
-      const manager = this.rendition?.manager;
-      try {
-        void Promise.resolve(manager?.check?.()).catch(() => undefined);
-      } catch {
-        // A view can be destroyed between the boundary event and this task.
-      }
-    }, 0);
+    if (!this.fixedLayout) return;
+    window.clearTimeout(this.scrolledLocationTimer);
+    this.scrolledLocationTimer = window.setTimeout(() => this.emitFixedScrolledLocation(), 90);
+    if (container.scrollTop + container.clientHeight >= container.scrollHeight - 500) {
+      this.scheduleFixedLayoutCheck();
+    }
   };
 
   async open(source: BookSource, host: ReaderHost): Promise<BookMetadata> {
@@ -65,20 +62,31 @@ export class EpubEngine implements ReaderEngine {
     // with one "Blocked script execution" error per spine item.
     this.book.spine?.hooks?.serialize?.register?.(this.sanitizeSectionOutput);
     const metadataRaw = await Promise.resolve(this.book.loaded?.metadata || this.book.packaging?.metadata || {});
+    const packageMetadata = this.book.packaging?.metadata || this.book.package?.metadata || metadataRaw;
+    this.fixedLayout = packageMetadata?.layout === "pre-paginated" || this.book.displayOptions?.fixedLayout === "true";
+    const spineItems = this.book.spine?.items || [];
+    this.fixedPageCount = spineItems.filter((item: any) => item.linear !== "no").length || spineItems.length;
     const title = metadataRaw?.title || (source.kind === "stored" ? source.record.name : source.kind === "file" ? source.file.name : source.name || "EPUB 小说");
     const chapters = await this.readToc();
-    const metadata: BookMetadata = { title, author: metadataRaw?.creator, format: this.format, chapters };
+    const metadata: BookMetadata = { title, author: metadataRaw?.creator, format: this.format, total: this.fixedLayout ? this.fixedPageCount : undefined, chapters };
     host.onMetadata(metadata);
     // EPUB.js appends its container instead of replacing the mount node.
     // Remove the shell's loading placeholder before creating the rendition.
     host.surface.replaceChildren();
     this.createRendition();
+    const rendition = this.rendition;
     window.addEventListener("resize", this.resizeHandler);
-    await this.rendition.display();
-    this.stabilizeScrolledManager();
+    await this.prepareRenditionFlow(rendition);
+    await rendition.display();
+    if (this.rendition !== rendition || this.destroyed) return metadata;
+    this.configureFixedLayoutAxis();
     this.setFontSize(this.fontSize);
     this.applyAllDocuments();
-    void this.generateLocations();
+    if (this.fixedLayout && this.flow === "scrolled") this.emitFixedScrolledLocation();
+    if (this.fixedLayout && this.flow === "scrolled") this.scheduleFixedLayoutCheck();
+    // A fixed-layout EPUB is already paginated by its spine: generating
+    // character locations for every image page only delays the progress UI.
+    if (!this.fixedLayout) void this.generateLocations();
     return metadata;
   }
 
@@ -94,31 +102,54 @@ export class EpubEngine implements ReaderEngine {
       minSpreadWidth: 0,
       allowScriptedContent: false
     });
+    const rendition = this.rendition;
+    const isCurrentRendition = () => !this.destroyed && this.rendition === rendition;
     this.setSurfaceFlowClass();
+    this.configureFixedLayoutAxis();
     this.bindScrolledBoundary();
     // EPUB.js invokes the content hook before the view is painted. Apply the
     // reader overrides here as well as from `rendered`, otherwise images can
     // briefly use the EPUB's original layout and then jump/resize a frame later.
-    this.rendition.hooks?.content?.register?.((contents: any) => this.enhanceDocument(this.documentFromView(contents)));
-    this.rendition.on("rendered", (_section: unknown, view: any) => this.enhanceDocument(this.documentFromView(view)));
-    this.rendition.on("relocated", (location: any) => this.emitLocation(location));
+    rendition.hooks?.content?.register?.((contents: any) => {
+      if (isCurrentRendition()) this.enhanceDocument(this.documentFromView(contents));
+    });
+    rendition.on("rendered", (_section: unknown, view: any) => {
+      if (!isCurrentRendition()) return;
+      const doc = this.documentFromView(view);
+      this.enhanceDocument(doc);
+      this.alignFixedLayoutPage(doc);
+    });
+    rendition.on("relocated", (location: any) => {
+      if (!isCurrentRendition()) return;
+      if (!this.fixedLayout || this.flow !== "scrolled" || !this.emitFixedScrolledLocation()) this.emitLocation(location);
+    });
   }
 
   private emitLocation(location: any): void {
     this.lastRawLocation = location;
     const cfi = location?.start?.cfi;
-    const percent = this.locationsReady && cfi ? this.book.locations.percentageFromCfi(cfi) : undefined;
     const isScrolled = this.flow === "scrolled";
+    const href = location?.start?.href;
+    const fixedSection = this.fixedLayout && href ? this.book.spine?.get?.(href) : undefined;
+    const linearSections = this.fixedLayout
+      ? (this.book.spine?.items || []).filter((item: any) => item.linear !== "no")
+      : [];
+    const fixedPage = fixedSection
+      ? linearSections.findIndex((item: any) => item.href === fixedSection.href) + 1
+      : undefined;
+    const percent = this.fixedLayout && fixedPage && this.fixedPageCount > 1
+      ? (fixedPage - 1) / (this.fixedPageCount - 1)
+      : this.locationsReady && cfi ? this.book.locations.percentageFromCfi(cfi) : undefined;
     this.host?.onLocation({
         kind: this.format,
         // EPUB.js reports section-local page numbers for continuous flow.
         // They are not a meaningful global page counter and can appear to
         // jump when the continuous manager adds/removes spine views. Persist
         // only the CFI/href in this mode.
-        page: isScrolled ? undefined : location?.start?.displayed?.page,
-        total: isScrolled ? undefined : location?.start?.displayed?.total,
+        page: isScrolled ? undefined : fixedPage || location?.start?.displayed?.page,
+        total: isScrolled ? undefined : this.fixedLayout ? this.fixedPageCount : location?.start?.displayed?.total,
         cfi,
-        href: location?.start?.href,
+        href,
         percent,
         atStart: Boolean(location?.atStart),
         atEnd: Boolean(location?.atEnd)
@@ -126,12 +157,13 @@ export class EpubEngine implements ReaderEngine {
   }
 
   private async generateLocations(): Promise<void> {
+    const rendition = this.rendition;
     try {
       this.book.locations.pause = 10;
       await this.book.locations.generate(1200);
-      if (this.destroyed || !this.book || !this.rendition) return;
+      if (this.destroyed || !this.book || this.rendition !== rendition) return;
       this.locationsReady = this.book.locations.length() > 0;
-      const current = this.rendition?.currentLocation?.() || this.lastRawLocation;
+      const current = rendition?.currentLocation?.();
       if (current) this.emitLocation(current);
     } catch {
       this.locationsReady = false;
@@ -157,16 +189,35 @@ export class EpubEngine implements ReaderEngine {
 
   private async readToc(): Promise<Array<{ label: string; href: string }>> {
     try {
-      const navigation = await Promise.resolve(this.book.loaded?.navigation || this.book.navigation);
-      return (navigation?.toc || []).map((item: any) => ({ label: item.label || "未命名章节", href: item.href }));
+      let navigation: any;
+      try {
+        navigation = await Promise.resolve(this.book.loaded?.navigation);
+      } catch {
+        navigation = undefined;
+      }
+      const toc = navigation?.toc || this.book.navigation?.toc || [];
+      const chapters: Array<{ label: string; href: string }> = [];
+      const append = (items: any[], depth = 0): void => {
+        for (const item of items || []) {
+          if (typeof item?.href === "string" && item.href.trim()) {
+            const label = String(item.label || "未命名章节").trim();
+            chapters.push({ label: `${"　".repeat(depth)}${label}`, href: item.href });
+          }
+          append(item?.subitems || item?.children || [], depth + 1);
+        }
+      };
+      append(toc);
+      return chapters;
     } catch { return []; }
   }
 
   async next(): Promise<void> {
+    this.navigationVersion += 1;
     if (this.flow === "scrolled" && this.scrollSurface(1)) return;
     await this.rendition?.next();
   }
   async prev(): Promise<void> {
+    this.navigationVersion += 1;
     if (this.flow === "scrolled" && this.scrollSurface(-1)) return;
     await this.rendition?.prev();
   }
@@ -202,15 +253,31 @@ export class EpubEngine implements ReaderEngine {
     return false;
   }
   async goTo(locator: Locator): Promise<void> {
+    this.navigationVersion += 1;
+    const rendition = this.rendition;
+    let target: string | undefined;
     if (locator.cfi || locator.href) {
-      await this.rendition?.display(locator.cfi || locator.href);
-      return;
+      target = locator.cfi || locator.href;
+    } else if (locator.page) {
+      if (this.fixedLayout) {
+        const sections = (this.book?.spine?.items || []).filter((item: any) => item.linear !== "no");
+        target = sections[locator.page - 1]?.href;
+      } else {
+        target = this.cfiForDisplayedPage(locator.page, locator.total);
+      }
     }
-    if (locator.page) {
-      const cfi = this.cfiForDisplayedPage(locator.page, locator.total);
-      if (cfi) await this.rendition?.display(cfi);
+    if (!target || !rendition) return;
+    const navigation = this.navigationVersion;
+    await rendition.display(target);
+    if (this.rendition !== rendition || this.destroyed || this.navigationVersion !== navigation) return;
+    if (this.fixedLayout && this.flow === "scrolled") this.emitFixedScrolledLocation();
+    if (this.fixedLayout && this.flow === "scrolled") this.scheduleFixedLayoutCheck();
+    else {
+      const current = rendition.currentLocation?.();
+      if (current) this.emitLocation(current);
     }
   }
+
   setFontSize(percent: number): void { this.fontSize = percent; this.rendition?.themes?.fontSize(`${percent}%`); }
   setTheme(theme: ReaderTheme): void {
     this.theme = theme;
@@ -225,18 +292,59 @@ export class EpubEngine implements ReaderEngine {
 
   setFlow(flow: ReaderFlow): void {
     if (this.flow === flow && this.rendition) return;
+    const transition = ++this.flowTransitionVersion;
     this.flow = flow;
     this.setSurfaceFlowClass();
     if (!this.rendition || !this.host || !this.book) return;
-    const cfi = this.rendition.currentLocation?.()?.start?.cfi;
-    this.rendition.destroy?.();
+    const oldRendition = this.rendition;
+    const currentStart = oldRendition.currentLocation?.()?.start;
+    const cfi = currentStart?.cfi || this.lastRawLocation?.start?.cfi;
+    const href = currentStart?.href || this.lastRawLocation?.start?.href;
+    const navigation = this.navigationVersion;
+    this.lastFixedScrolledHref = undefined;
+    // EPUB.js leaves the continuous manager's asynchronous trim queue alive
+    // after destroy(). Cancel it before its old views are removed; otherwise
+    // a queued trim can try removing a node from the replacement rendition.
+    const oldManager = oldRendition.manager;
+    if (oldManager) {
+      window.clearTimeout(oldManager.trimTimeout);
+      oldManager.q?.stop?.();
+      oldManager.trim = () => Promise.resolve();
+    }
+    oldRendition.destroy?.();
     this.host.surface.replaceChildren();
     this.createRendition();
-    void this.rendition.display(cfi).then(() => {
-      this.stabilizeScrolledManager();
+    const rendition = this.rendition;
+    const target = this.fixedLayout ? (href || cfi) : cfi;
+    const stillCurrent = () => !this.destroyed && this.rendition === rendition && this.flowTransitionVersion === transition && this.navigationVersion === navigation;
+    void this.prepareRenditionFlow(rendition).then(() => {
+      if (!stillCurrent()) return;
+      return rendition.display(target);
+    }).then(() => {
+      if (!stillCurrent()) return;
+      this.configureFixedLayoutAxis();
+      if (this.fixedLayout && this.flow === "scrolled" && href) {
+        const manager = this.rendition?.manager;
+        const section = this.book?.spine?.get?.(href);
+        const view = section ? manager?.views?.find?.(section) : undefined;
+        const position = view?.position?.();
+        if (manager?.container && position && Number.isFinite(position.top)) {
+          manager.container.scrollTop = Math.max(0, position.top);
+          manager.scrollTop = manager.container.scrollTop;
+          manager.scrollLeft = manager.container.scrollLeft;
+        }
+      }
       this.setFontSize(this.fontSize);
       this.applyAllDocuments();
-    }).catch((error: unknown) => this.host?.onError(error));
+      if (this.fixedLayout && this.flow === "scrolled") this.emitFixedScrolledLocation();
+      if (this.fixedLayout && this.flow === "scrolled") this.scheduleFixedLayoutCheck();
+      else {
+        const current = this.rendition?.currentLocation?.();
+        if (current) this.emitLocation(current);
+      }
+    }).catch((error: unknown) => {
+      if (stillCurrent()) this.host?.onError(error);
+    });
   }
 
   setLineHeight(lineHeight: number): void {
@@ -267,77 +375,142 @@ export class EpubEngine implements ReaderEngine {
     const surface = this.host?.surface;
     if (!surface) return;
     surface.classList.toggle("reader-flow-scrolled", this.flow === "scrolled");
+    surface.classList.toggle("reader-epub-fixed-layout", this.fixedLayout);
     surface.style.setProperty("--reader-scroll-width", `${this.zoom}%`);
   }
 
   private bindScrolledBoundary(): void {
     this.scrolledSurface?.removeEventListener("scroll", this.scrolledBoundaryHandler, true);
     this.scrolledSurface = undefined;
+    window.clearTimeout(this.scrolledLocationTimer);
     window.clearTimeout(this.scrolledBoundaryTimer);
     if (this.flow !== "scrolled" || !this.host?.surface) return;
     this.scrolledSurface = this.host.surface;
     this.scrolledSurface.addEventListener("scroll", this.scrolledBoundaryHandler, { capture: true, passive: true });
   }
 
-  private stabilizeScrolledManager(): void {
-    if (this.flow !== "scrolled") return;
-    const manager = this.rendition?.manager;
-    if (!manager || manager.__nekoStableScroll) return;
-    // EPUB.js normally removes distant views after a short delay. With a
-    // long, reflowable chapter that removal changes scrollHeight and can make
-    // the viewport jump while the reader is actively scrolling. Keep loaded
-    // spine views in continuous mode; new sections are still appended by the
-    // manager boundary check above. This trades some memory for a stable,
-    // uninterrupted reading stream.
-    manager.__nekoStableScroll = true;
-    // ContinuousViewManager.update() destroys every view outside its
-    // viewport before scheduling trim(). Recreating those iframe views on
-    // the way back up changes scrollHeight and makes a long book jump to a
-    // different chapter. Keep all loaded views mounted instead. The
-    // manager still runs check(), so adjacent spine items continue to be
-    // appended/prepended as the reader reaches a boundary.
-    for (const method of ["append", "prepend"] as const) {
-      const original = manager[method]?.bind(manager);
-      if (!original || manager[`__neko${method}Wrapped`]) continue;
-      manager[`__neko${method}Wrapped`] = true;
-      manager[method] = (section: any) => {
-        const view = original(section);
-        if (view && !view.__nekoShowHooked) {
-          const previous = view.onDisplayed;
-          view.__nekoShowHooked = true;
-          view.onDisplayed = (shown: any) => {
-            try {
-              previous?.(shown);
-            } finally {
-              (shown || view)?.show?.();
-            }
-          };
-        }
-        return view;
-      };
-    }
-    manager.update = () => {
-      const views = manager.views?.all?.() || [];
-      for (const view of views) {
-        if (view?.displayed) view.show?.();
-      }
-      return Promise.resolve();
-    };
-    manager.trim = () => Promise.resolve();
-    this.scheduleScrolledCheck();
+  private scheduleFixedLayoutCheck(): void {
+    if (!this.fixedLayout || this.flow !== "scrolled") return;
+    window.clearTimeout(this.scrolledBoundaryTimer);
+    this.scrolledBoundaryTimer = window.setTimeout(() => {
+      if (this.destroyed || this.flow !== "scrolled") return;
+      const manager = this.rendition?.manager;
+      if (!manager?.container) return;
+      // ContinuousViewManager fills neighboring spine pages when explicitly
+      // checked. A restored position can already be at the end of its
+      // currently mounted pages and therefore produce no native scroll event.
+      void Promise.resolve(manager.check?.()).catch((error: unknown) => this.host?.onError(error));
+    }, 25);
   }
 
-  private scheduleScrolledCheck(): void {
-    if (this.flow !== "scrolled" || !this.rendition?.manager) return;
-    window.clearTimeout(this.scrolledCheckTimer);
-    this.scrolledCheckTimer = window.setTimeout(() => {
-      if (this.destroyed || this.flow !== "scrolled") return;
-      try {
-        void Promise.resolve(this.rendition?.manager?.check?.()).catch(() => undefined);
-      } catch {
-        // The rendition can be torn down while a late image load is settling.
+  private configureFixedLayoutAxis(): void {
+    const manager = this.rendition?.manager;
+    if (!manager) return;
+    if (this.flow === "scrolled" && !manager.__nekoCoordinateSyncWrapped) {
+      const scrollTo = manager.scrollTo?.bind(manager);
+      const check = manager.check?.bind(manager);
+      manager.__nekoCoordinateSyncWrapped = true;
+      if (scrollTo) {
+        manager.scrollTo = (left: number, top: number, silent?: boolean) => {
+          const result = scrollTo(left, top, silent);
+          // EPUB.js clear()/display() updates the actual scroll element but
+          // leaves ContinuousViewManager's cached coordinates untouched.
+          // The following fill() then thinks it is still at the previous
+          // chapter and prepends pages there instead of staying at the target.
+          if (!manager.settings?.fullsize && manager.container) {
+            manager.scrollTop = manager.container.scrollTop;
+            manager.scrollLeft = manager.container.scrollLeft;
+          }
+          return result;
+        };
       }
-    }, 0);
+      if (check) {
+        manager.check = (...args: unknown[]) => {
+          if (!manager.settings?.fullsize && manager.container) {
+            manager.scrollTop = manager.container.scrollTop;
+            manager.scrollLeft = manager.container.scrollLeft;
+          }
+          return check(...args);
+        };
+      }
+    }
+    if (this.flow === "scrolled" && !this.fixedLayout && !manager.__nekoRetainViewGeometry) {
+      // ContinuousViewManager unloads an offscreen iframe and recreates it
+      // when reading back. For a long text chapter its resize compensation
+      // can move the viewport by thousands of pixels. Keep loaded text views
+      // mounted throughout this rendition so upward reading remains stable.
+      // Fixed-layout image pages retain EPUB.js' normal view recycling.
+      manager.__nekoRetainViewGeometry = true;
+      manager.update = () => {
+        for (const view of manager.views?.all?.() || []) {
+          if (view.displayed) view.show?.();
+        }
+        return Promise.resolve();
+      };
+      manager.trim = () => Promise.resolve();
+    }
+    if (this.flow === "scrolled" && this.fixedLayout && !manager.__nekoRetainFixedGeometry) {
+      // Keep lightweight page wrappers in place. EPUB.js' trim removes an
+      // entire page and compensates scrollTop. Keep the page geometry stable
+      // during reverse scrolling while its normal update() still unloads
+      // distant image iframes to bound decoded artwork memory.
+      manager.__nekoRetainFixedGeometry = true;
+      manager.trim = () => Promise.resolve();
+    }
+    if (!this.fixedLayout) return;
+    // EPUB.js derives a horizontal axis from `writing-mode: vertical-rl`.
+    // That is right for vertical text, but fixed-layout pages are scanned
+    // artwork: spreads need a horizontal paginated axis, while continuous
+    // reading must remain vertical so later spine pages are appended below.
+    if (!manager.__nekoFixedLayoutAxisWrapped) {
+      const updateAxis = manager.updateAxis?.bind(manager);
+      if (!updateAxis) return;
+      manager.__nekoFixedLayoutAxisWrapped = true;
+      manager.updateAxis = (_axis: string, forceUpdate?: boolean) => updateAxis(
+        this.flow === "scrolled" ? "vertical" : "horizontal",
+        forceUpdate
+      );
+    }
+    manager.updateAxis(this.flow === "scrolled" ? "vertical" : "horizontal", true);
+    if (this.flow === "scrolled") {
+      // RTL is a page-turning direction, not a vertical scroll direction.
+      // With RTL here EPUB.js reverses its scrollTop calculation and thinks
+      // the reader is at the start when actually at the bottom, so it never
+      // appends the next image page.
+      manager.direction?.("ltr");
+    }
+  }
+
+  private emitFixedScrolledLocation(): boolean {
+    const manager = this.rendition?.manager;
+    const container = manager?.container as HTMLElement | undefined;
+    const views = manager?.views?.all?.() || [];
+    if (!container || !views.length || !this.host) return false;
+    const containerTop = container.getBoundingClientRect().top;
+    const marker = container.scrollTop + container.clientHeight / 2;
+    const positioned = views.map((view: any) => {
+      const rect = view.element?.getBoundingClientRect?.();
+      const top = rect ? container.scrollTop + rect.top - containerTop : Number(view.element?.offsetTop || 0);
+      const height = Number(rect?.height || view.height?.() || view.element?.offsetHeight || container.clientHeight);
+      return { view, top, bottom: top + height };
+    });
+    const active = positioned.find((item: any) => item.top <= marker && item.bottom > marker)?.view;
+    if (!active?.section?.href) return false;
+    const href = active.section.href;
+    if (href === this.lastFixedScrolledHref) return true;
+    this.lastFixedScrolledHref = href;
+    const linearSections = (this.book?.spine?.items || []).filter((item: any) => item.linear !== "no");
+    const pageIndex = linearSections.findIndex((item: any) => item.href === href);
+    const percent = pageIndex >= 0 && linearSections.length > 1 ? pageIndex / (linearSections.length - 1) : 0;
+    this.lastRawLocation = { start: { href, cfi: active.section.cfiBase } };
+    this.host.onLocation({
+      kind: this.format,
+      href,
+      percent,
+      atStart: pageIndex === 0,
+      atEnd: pageIndex === linearSections.length - 1
+    }, percent);
+    return true;
   }
 
   private applySpread(restoreLocation = false): void {
@@ -367,10 +540,41 @@ export class EpubEngine implements ReaderEngine {
 
   private applyAllDocuments(): void {
     const contents = this.rendition?.getContents?.() || [];
-    for (const content of contents) this.enhanceDocument(content?.document || content?.content?.ownerDocument);
+    for (const content of contents) {
+      const doc = content?.document || content?.content?.ownerDocument;
+      this.enhanceDocument(doc);
+      this.alignFixedLayoutPage(doc);
+    }
+  }
+
+  private alignAllFixedLayoutPages(): void {
+    if (!this.fixedLayout) return;
+    const contents = this.rendition?.getContents?.() || [];
+    for (const content of contents) this.alignFixedLayoutPage(content?.document || content?.content?.ownerDocument);
+  }
+
+  private alignFixedLayoutPage(doc?: Document): void {
+    if (!this.fixedLayout || !doc?.body) return;
+    const frame = doc.defaultView?.frameElement as HTMLIFrameElement | null;
+    if (!frame?.isConnected) return;
+    const body = doc.body;
+    // EPUB.js scales a pre-paginated page to fit the frame's height, but
+    // anchors it to the left when the viewport is wider than the artwork.
+    // Center the already-scaled page without altering its intrinsic size.
+    body.style.position = "relative";
+    body.style.left = "0px";
+    body.style.top = "0px";
+    const frameRect = frame.getBoundingClientRect();
+    const pageRect = body.getBoundingClientRect();
+    body.style.left = `${Math.max(0, (frameRect.width - pageRect.width) / 2)}px`;
+    body.style.top = `${Math.max(0, (frameRect.height - pageRect.height) / 2)}px`;
   }
 
   private markIllustrations(doc: Document): void {
+    // Fixed-layout pages are already scaled by EPUB.js from the OPF viewport.
+    // Rewriting SVG/img dimensions here applies a second transform and makes
+    // full-page artwork appear tiny or jump after the first paint.
+    if (this.fixedLayout) return;
     const body = doc.body;
     if (!body) return;
     const media = [...body.querySelectorAll<HTMLElement>("img, svg")];
@@ -400,6 +604,20 @@ export class EpubEngine implements ReaderEngine {
         element.classList.add("neko-large-illustration");
       }
     });
+  }
+
+  private async prepareRenditionFlow(rendition = this.rendition): Promise<void> {
+    if (!rendition) return;
+    // EPUB.js applies the package flow and writing-mode while starting. For
+    // scanned Japanese fixed-layout books, the XHTML often declares vertical
+    // writing even though pages themselves must be laid out as image pages.
+    // Install the axis override after the manager exists but before its first
+    // view is displayed, otherwise ContinuousViewManager can preload the book
+    // along the wrong axis and create a giant blank scroll range.
+    await rendition.started;
+    if (this.rendition !== rendition || this.destroyed) return;
+    rendition.flow(this.flow === "scrolled" ? "scrolled" : "paginated");
+    this.configureFixedLayoutAxis();
   }
 
   private enhanceDocument(doc?: Document): void {
@@ -473,6 +691,13 @@ export class EpubEngine implements ReaderEngine {
       body :is(p, span, li, td, th, h1, h2, h3, h4, h5, h6):not([style*="color"]) { color: ${palette.color} !important; }
       a { color: ${palette.link} !important; }
     ` : "";
+    if (this.fixedLayout) {
+      // EPUB.js owns sizing and scaling for pre-paginated content. Keep the
+      // source page's viewport, SVG viewBox, and intrinsic image geometry
+      // intact; only paint the outer background for the selected theme.
+      style.textContent = themeCss;
+      return;
+    }
     // A small preflight is installed before classifying images. It prevents
     // the browser from painting the source EPUB's unconstrained image first.
     style.textContent = `
@@ -512,27 +737,6 @@ export class EpubEngine implements ReaderEngine {
     // Let EPUB.js finish attaching the view before changing its iframe
     // height. Doing it synchronously during the content hook can race its
     // own MutationObserver while the frame is still being mounted.
-    window.requestAnimationFrame(() => this.syncScrolledFrameSize(doc));
-  }
-
-  private syncScrolledFrameSize(doc: Document): void {
-    if (this.flow !== "scrolled") return;
-    const frame = doc.defaultView?.frameElement as HTMLIFrameElement | null;
-    if (!frame || !frame.isConnected) return;
-    // Continuous manager views are initially measured before late-loading
-    // illustrations have intrinsic dimensions. Measure the rendered content
-    // after our overrides and grow that view instead of leaving a 16px iframe
-    // which clips the image to a thin strip.
-    const bottoms = [
-      doc.documentElement?.getBoundingClientRect().bottom || 0,
-      doc.body?.getBoundingClientRect().bottom || 0,
-      ...[...doc.querySelectorAll<HTMLElement>("img, svg, p, figure, div")].map((node) => node.getBoundingClientRect().bottom)
-    ];
-    const height = Math.max(16, Math.ceil(Math.max(...bottoms.filter(Number.isFinite), 0) + 16));
-    if (Math.abs(frame.getBoundingClientRect().height - height) > 1 || frame.style.height !== `${height}px`) {
-      frame.style.height = `${height}px`;
-      this.scheduleScrolledCheck();
-    }
   }
 
   private paintDocumentBackground(doc?: Document): void {
@@ -543,5 +747,5 @@ export class EpubEngine implements ReaderEngine {
     doc.body.style.backgroundColor = background;
   }
 
-  destroy(): void { this.destroyed = true; window.removeEventListener("resize", this.resizeHandler); this.bindScrolledBoundary(); window.clearTimeout(this.scrolledCheckTimer); this.rendition?.destroy?.(); this.book?.destroy?.(); this.host?.surface.replaceChildren(); this.rendition = undefined; this.book = undefined; this.host = undefined; }
+  destroy(): void { this.destroyed = true; window.removeEventListener("resize", this.resizeHandler); this.bindScrolledBoundary(); this.rendition?.destroy?.(); this.book?.destroy?.(); this.host?.surface.replaceChildren(); this.rendition = undefined; this.book = undefined; this.host = undefined; }
 }
